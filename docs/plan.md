@@ -95,7 +95,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - Test với 3 file sample.
 - Xong khi: AC-01 (15 block, 49 part row), AC-03 (đúng 2 cảnh báo: MHU PHL BCO và SS), AC-04 (ở mức dữ liệu), AC-05, AC-06.
 
-### Giai đoạn 2: Quét thư mục và database
+### Giai đoạn 2: Quét thư mục và database (HOÀN THÀNH, 37 test đạt)
 - `scan.py` theo folder dự án, suy ra line từ folder và tên file (D12), chọn TPV cuối, quét gia tăng.
 - Schema SQLite, báo cáo data quality (FR-41).
 - Xong khi: quét thư mục mẫu trong vài giây, danh sách cảnh báo hợp lý.
