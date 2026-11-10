@@ -22,7 +22,7 @@ sys.path.insert(0, str(SRC))
 
 from _func import db  # noqa: E402
 from _func.scan import SKIP_DIR_PREFIXES, scan_database  # noqa: E402
-from feature import queries  # noqa: E402
+from feature import compare, queries  # noqa: E402
 
 DEFAULT_PORT = 8010  # 8000 đã dùng cho Abbreviation Web
 ASSETS = SRC / "assets"
@@ -211,6 +211,20 @@ def make_handler(app: App):
                     m = re.fullmatch(r"/api/frs/(\d+)", path)
                     if m:
                         data = queries.frs_detail(conn, int(m.group(1)))
+                        if data is None:
+                            raise ApiError(404, "Không tìm thấy FRS")
+                        return self._json(data)
+                    m = re.fullmatch(r"/api/frs/(\d+)/tickets", path)
+                    if m:
+                        return self._json({"tickets": compare.frs_tickets(conn, int(m.group(1)))})
+                    if path == "/api/frs-list":
+                        return self._json({"frs": compare.frs_list(conn)})
+                    if path == "/api/compare":
+                        try:
+                            a, b = int(qs.get("a", "")), int(qs.get("b", ""))
+                        except ValueError:
+                            raise ApiError(400, "Cần chọn hai FRS để so sánh")
+                        data = compare.compare_frs(conn, a, b)
                         if data is None:
                             raise ApiError(404, "Không tìm thấy FRS")
                         return self._json(data)

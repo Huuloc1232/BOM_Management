@@ -106,7 +106,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - `.vbs`, `.bat`, cổng 8010.
 - Xong khi: AC-02.
 
-### Giai đoạn 4: Change content, ticket, so sánh
+### Giai đoạn 4: Change content, ticket, so sánh (HOÀN THÀNH, 55 test đạt)
 - Trang change content, link ticket, tra cứu hai chiều CCB/IMS (FR-17 đến FR-21).
 - So sánh hai FRS theo ECU part number (FR-27).
 - Xong khi: AC-04, AC-07.

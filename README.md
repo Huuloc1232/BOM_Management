@@ -2,7 +2,7 @@
 
 Web tool local để truy xuất nhanh HW/SW BOM theo FRS. Tài liệu: `docs/requirements.md`, `docs/plan.md`.
 
-Trạng thái: Giai đoạn 1 đến 3 xong (parser, quét thư mục, chỉ mục SQLite, web tool tra cứu). Chưa có: so sánh hai FRS, ma trận COM_BOM, sơ đồ cây FRS.
+Trạng thái: Giai đoạn 1 đến 4 xong (parser, quét thư mục, chỉ mục SQLite, web tool tra cứu, so sánh hai FRS, tra cứu ticket). Chưa có: ma trận COM_BOM, sơ đồ cây FRS.
 
 ## Chạy web tool
 
@@ -17,6 +17,8 @@ python src/app.py --open
 Lần đầu, bấm "Thư mục database" và dán đường dẫn thư mục chứa các folder dự án. Tool quét gia tăng mỗi lần khởi động; bấm "Quét lại" sau khi thêm hoặc sửa file Excel.
 
 - Ô tìm kiếm nhận mã FRS, part number (không cần gõ revision), tên ECU, mã ticket. Phím `/` để nhảy vào ô tìm.
+- "So sánh FRS" so part number của hai FRS theo từng ECU và block, kèm ticket chỉ có ở một bên. Mở từ trang FRS thì mặc định so với FRS cha trong cây.
+- Tab "Ticket" ở trang FRS liệt kê mọi CCB/Jira mà FRS đã release, lọc theo loại, TPV, nội dung.
 - "Thêm dự án" và "Thêm line" tạo folder tương ứng trong thư mục database. Tool không bao giờ sửa file Excel.
 - Server chỉ lắng nghe `127.0.0.1`. Cổng 8010 bận thì dùng cổng kế tiếp.
 
@@ -80,5 +82,6 @@ python -m unittest discover -s tests
 - `src/_func/db.py`: schema và truy vấn chỉ mục SQLite
 - `src/_func/scan.py`: quét thư mục, chọn TPV cuối, quét gia tăng, có CLI
 - `src/feature/queries.py`: truy vấn cho giao diện (dashboard, FRS, tìm kiếm)
+- `src/feature/compare.py`: so sánh hai FRS, danh sách ticket của FRS
 - `src/app.py`: server web local (stdlib `http.server`)
 - `src/index.html`, `src/assets/`: giao diện (HTML, CSS, JS thuần)

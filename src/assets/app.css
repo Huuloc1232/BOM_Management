@@ -70,7 +70,8 @@ button.chip.on { background: var(--accent); color: var(--accent-ink); }
 .tabs button { background: transparent; color: var(--muted); border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; }
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-.toolbar input, .toolbar select { width: auto; min-width: 150px; }
+.toolbar input[type=search], .toolbar select { width: auto; min-width: 150px; }
+.toolbar input[type=checkbox] { width: auto; margin: 0; }
 .pre { white-space: pre-wrap; word-break: break-word; }
 .empty { padding: 30px; text-align: center; color: var(--muted); }
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); width: min(640px, 92vw); padding: 20px; }
@@ -79,3 +80,13 @@ dialog label { display: block; font-weight: 600; margin: 10px 0; }
 dialog label input { margin-top: 4px; font-weight: 400; }
 .row-end { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 14px; }
 section { margin-top: 22px; }
+.navlink { white-space: nowrap; font-weight: 600; }
+tr.diff-changed td.val, tr.diff-added td.val, tr.diff-removed td.val { background: var(--warn-bg); color: var(--warn); }
+tr.diff-rev td.val { background: var(--ok-bg); color: var(--ok); }
+td.side-missing { color: var(--muted); font-style: italic; }
+.summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.pickers { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: end; margin-bottom: 14px; }
+.pickers label { font-weight: 600; display: block; }
+.pickers select { margin-top: 4px; }
+@media (max-width: 800px) { .pickers { grid-template-columns: 1fr; } }
+label.check { display: inline-flex; gap: 6px; align-items: center; }

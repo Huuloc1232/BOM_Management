@@ -126,6 +126,19 @@ class AppTest(unittest.TestCase):
         _, d = self.get("/api/search?q=")
         self.assertEqual(d["parts"], [])
 
+    def test_compare_and_ticket_api(self):
+        a, b = self.frs_id("3B.1.10.0"), self.frs_id("3B.1.11.0")
+        status, d = self.get(f"/api/compare?a={a}&b={b}")
+        self.assertEqual(status, 200)
+        diffs = [(g["ecu"], r["pn_type"], r["status"]) for g in d["groups"] for r in g["rows"] if r["status"] != "same"]
+        self.assertEqual(diffs, [("ACM", "SW", "changed")])
+        self.assertEqual(self.get("/api/compare?a=1")[0], 400)
+        self.assertEqual(self.get(f"/api/compare?a={a}&b=999")[0], 404)
+        _, t = self.get(f"/api/frs/{b}/tickets")
+        self.assertIn("CCB-26107", [x["key"] for x in t["tickets"]])
+        _, fl = self.get("/api/frs-list")
+        self.assertEqual({f["code"]: f["parent_code"] for f in fl["frs"]}["3B.1.11.0"], "3B.1.10.0")
+
     def test_add_project_and_line(self):
         status, _ = self.post("/api/projects", {"name": "ECVan"})
         self.assertEqual(status, 200)

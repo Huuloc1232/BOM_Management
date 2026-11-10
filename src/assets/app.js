@@ -57,6 +57,7 @@ async function route() {
     if (parts[0] === "project" && parts[1]) await renderProject(Number(parts[1]), params);
     else if (parts[0] === "frs" && parts[1]) await renderFrs(Number(parts[1]), params);
     else if (parts[0] === "search") await renderSearch(params);
+    else if (parts[0] === "compare") await renderCompare(params);
     else await renderDashboard();
   } catch (e) {
     view.innerHTML = `<div class="empty">Không tải được dữ liệu: ${esc(e.message)}</div>`;
@@ -196,13 +197,14 @@ async function renderFrs(id, params) {
   const tab = params.tab || "bom";
   const state = { variant: null, ecu: "" };
   const warnCount = d.issues.filter((i) => i.severity !== "info").length;
-  const tabs = [["bom", `BOM (${d.blocks.length} block)`], ["combom", `COM_BOM (${d.com_bom.length})`], ["change", `Change content (${d.changes.length})`], ["issues", `Chất lượng dữ liệu (${warnCount} cảnh báo)`]];
+  const tabs = [["bom", `BOM (${d.blocks.length} block)`], ["combom", `COM_BOM (${d.com_bom.length})`], ["change", `Change content (${d.changes.length})`], ["tickets", "Ticket"], ["issues", `Chất lượng dữ liệu (${warnCount} cảnh báo)`]];
   const projectId = f.project_id;
   view.innerHTML = `
     <div class="crumbs"><a href="#/">Dự án</a> / <a href="#/project/${projectId}">${esc(f.project)}</a> / FRS ${esc(f.code)}</div>
     <div class="head">
       <div><h1>FRS ${esc(f.code)} <span class="muted">${f.version == null ? "" : "V" + f.version} ${esc(f.side)}</span></h1>
         <div class="muted">Line: ${chips(f.lines) || "chưa gán"} · File: <span class="mono">${esc(f.file)}</span></div></div>
+      <a href="#/compare?b=${id}"><button type="button" class="ghost">So sánh với FRS khác</button></a>
     </div>
     <div class="tabs" role="tablist">${tabs.map(([k, label]) => `<button type="button" role="tab" data-tab="${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">${esc(label)}</button>`).join("")}</div>
     <div id="tab-body"></div>`;
@@ -250,6 +252,33 @@ async function renderFrs(id, params) {
       <td class="pre">${linkify(c.text, c.tickets) || '<span class="muted">(trống)</span>'}</td><td class="pre">${linkify(c.remarks, c.tickets)}</td></tr>`).join("");
     body.innerHTML = `<div class="table-wrap"><table><thead><tr><th>TPV</th><th>ECU</th><th>Change content</th><th>Remarks</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="4" class="empty">File không có sheet Change content.</td></tr>'}</tbody></table></div>`;
+  } else if (tab === "tickets") {
+    const { tickets } = await api(`/api/frs/${id}/tickets`);
+    const st = { prefix: "", tpv: "", text: "" };
+    const prefixes = [...new Set(tickets.map((t) => t.prefix))].sort();
+    const tpvs = [...new Set(tickets.flatMap((t) => t.tpvs))].sort((a, b) => b - a);
+    const draw = () => {
+      const q = st.text.trim().toLowerCase();
+      const list = tickets.filter((t) => (!st.prefix || t.prefix === st.prefix) && (!st.tpv || t.tpvs.includes(Number(st.tpv))) &&
+        (!q || t.key.toLowerCase().includes(q) || t.line.toLowerCase().includes(q) || t.ecus.join(" ").toLowerCase().includes(q)));
+      document.getElementById("ticket-count").textContent = `${list.length}/${tickets.length} ticket`;
+      document.getElementById("ticket-rows").innerHTML = list.map((t) => `<tr>
+        <td><a href="${esc(t.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(t.key)}</b></a></td>
+        <td>${t.tpvs.map((n) => `<span class="chip">TPV${n}</span>`).join("")}</td><td>${t.ecus.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</td>
+        <td>${esc(t.line)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">Không có ticket nào khớp bộ lọc.</td></tr>';
+    };
+    body.innerHTML = `
+      <div class="toolbar">
+        <select id="t-prefix" aria-label="Loại ticket"><option value="">Mọi loại</option>${prefixes.map((p) => `<option>${esc(p)}</option>`).join("")}</select>
+        <select id="t-tpv" aria-label="TPV"><option value="">Mọi TPV</option>${tpvs.map((n) => `<option value="${n}">TPV${n}</option>`).join("")}</select>
+        <input type="search" id="t-text" placeholder="Lọc theo mã, nội dung hoặc ECU" aria-label="Lọc ticket">
+        <span class="muted" id="ticket-count"></span>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Ticket</th><th>TPV</th><th>ECU</th><th>Nội dung</th></tr></thead><tbody id="ticket-rows"></tbody></table></div>`;
+    document.getElementById("t-prefix").onchange = (e) => { st.prefix = e.target.value; draw(); };
+    document.getElementById("t-tpv").onchange = (e) => { st.tpv = e.target.value; draw(); };
+    document.getElementById("t-text").oninput = (e) => { st.text = e.target.value; draw(); };
+    draw();
   } else if (tab === "issues") {
     const label = { error: ["err", "Lỗi"], warning: ["warn", "Cảnh báo"], info: ["", "Ghi chú"] };
     const rows = d.issues.map((i) => `<tr><td><span class="chip ${label[i.severity][0]}">${label[i.severity][1]}</span></td>
@@ -299,6 +328,84 @@ async function renderSearch(params) {
     const p = { ...params, [ev.target.name]: ev.target.value };
     location.hash = "#/search?" + new URLSearchParams(Object.entries(p).filter(([, v]) => v)).toString();
   };
+}
+
+// ---------- so sánh hai FRS ----------
+const DIFF = { same: ["", "Giống"], rev: ["ok", "Đổi revision"], changed: ["warn", "Đổi PN"], added: ["warn", "Thêm"], removed: ["warn", "Bớt"] };
+
+async function renderCompare(params) {
+  searchInput.value = "";
+  const { frs } = await api("/api/frs-list");
+  let a = params.a ? Number(params.a) : null;
+  const b = params.b ? Number(params.b) : null;
+  // chỉ chọn FRS mới (b): mặc định so với FRS cha trong cây
+  if (!a && b) { const cur = frs.find((f) => f.id === b); if (cur && cur.parent_id) a = cur.parent_id; }
+  const groupsOf = {};
+  for (const f of frs) (groupsOf[f.project] ||= []).push(f);
+  const options = (sel) => `<option value="">Chọn FRS</option>` + Object.entries(groupsOf).map(([proj, items]) =>
+    `<optgroup label="${esc(proj)}">${items.map((f) => `<option value="${f.id}" ${f.id === sel ? "selected" : ""}>FRS ${esc(f.code)}${f.version == null ? "" : " V" + f.version} ${esc(f.side)}</option>`).join("")}</optgroup>`).join("");
+  view.innerHTML = `
+    <div class="crumbs"><a href="#/">Dự án</a> / So sánh FRS</div>
+    <div class="head"><h1>So sánh part number giữa hai FRS</h1></div>
+    <div class="pickers">
+      <label>FRS cũ (A)<select id="cmp-a">${options(a)}</select></label>
+      <button type="button" class="ghost" id="cmp-swap" title="Đổi chỗ A và B">⇄</button>
+      <label>FRS mới (B)<select id="cmp-b">${options(b)}</select></label>
+    </div>
+    <div id="cmp-body">${frs.length < 2 ? '<div class="empty">Cần ít nhất hai FRS trong chỉ mục để so sánh.</div>' : ""}</div>`;
+  const go = (x, y) => { location.hash = "#/compare?" + new URLSearchParams(Object.entries({ a: x, b: y }).filter(([, v]) => v)).toString(); };
+  document.getElementById("cmp-a").onchange = (e) => go(e.target.value, b);
+  document.getElementById("cmp-b").onchange = (e) => go(a, e.target.value);
+  document.getElementById("cmp-swap").onclick = () => go(b, a);
+  const body = document.getElementById("cmp-body");
+  if (!a || !b) { if (frs.length >= 2) body.innerHTML = '<div class="empty">Chọn hai FRS để so sánh.</div>'; return; }
+  if (a === b) { body.innerHTML = '<div class="empty">Hãy chọn hai FRS khác nhau.</div>'; return; }
+
+  const d = await api(`/api/compare?a=${a}&b=${b}`);
+  const st = { onlyDiff: true, text: "" };
+  const s = d.summary;
+  const blockInfo = (x) => (x ? `${x.variants.map((v) => `<span class="chip">${esc(v)}</span>`).join("")}${x.label ? `<div class="muted">${esc(x.label)}</div>` : ""}` : "");
+  const draw = () => {
+    const q = st.text.trim().toUpperCase();
+    const groups = d.groups.filter((g) => (!st.onlyDiff || g.differs) && (!q || g.ecu.includes(q) || g.rows.some((r) => r.a.includes(q) || r.b.includes(q))));
+    const rows = groups.map((g) => {
+      const list = st.onlyDiff ? g.rows.filter((r) => r.status !== "same") : g.rows;
+      return list.map((r, i) => `<tr class="${i === 0 ? "block-start" : ""} diff-${r.status}">
+        ${i === 0 ? `<td class="group" rowspan="${list.length}">${esc(g.ecu)}${g.block === "only_a" ? '<div><span class="chip warn">chỉ có ở A</span></div>' : g.block === "only_b" ? '<div><span class="chip warn">chỉ có ở B</span></div>' : ""}</td>
+          <td class="group" rowspan="${list.length}" style="font-weight:400">${blockInfo(g.b || g.a)}${g.a && g.b && g.a.variants.join() !== g.b.variants.join() ? `<div class="muted">A: ${esc(g.a.variants.join(", "))}</div>` : ""}</td>` : ""}
+        <td>${esc(r.pn_type)}</td>
+        <td class="val mono ${r.a ? "" : "side-missing"}">${r.a ? esc(r.a) : "không có"}</td>
+        <td class="val mono ${r.b ? "" : "side-missing"}">${r.b ? esc(r.b) : "không có"}</td>
+        <td>${r.status === "same" ? "" : `<span class="chip ${DIFF[r.status][0]}">${DIFF[r.status][1]}</span>`}</td></tr>`).join("");
+    }).join("");
+    document.getElementById("cmp-rows").innerHTML = rows || `<tr><td colspan="6" class="empty">${st.onlyDiff && !q ? "Hai FRS giống hệt nhau về part number." : "Không có dòng nào khớp bộ lọc."}</td></tr>`;
+  };
+  const tk = d.tickets;
+  const ticketList = (list) => list.map((t) => `<tr><td><a href="${esc(t.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(t.key)}</b></a></td>
+    <td>${t.tpvs.map((n) => `<span class="chip">TPV${n}</span>`).join("")}</td><td>${esc(t.ecus.join(", "))}</td><td>${esc(t.line)}</td></tr>`).join("");
+  const ticketSection = (title, list) => (list.length ? `<section><h2>${title} (${list.length})</h2><div class="table-wrap"><table>
+    <thead><tr><th>Ticket</th><th>TPV</th><th>ECU</th><th>Nội dung</th></tr></thead><tbody>${ticketList(list)}</tbody></table></div></section>` : "");
+  body.innerHTML = `
+    <div class="summary">
+      <span class="chip">${s.same} giống</span><span class="chip ${s.changed ? "warn" : ""}">${s.changed} đổi PN</span>
+      <span class="chip ${s.rev ? "ok" : ""}">${s.rev} đổi revision</span><span class="chip ${s.added ? "warn" : ""}">${s.added} thêm</span>
+      <span class="chip ${s.removed ? "warn" : ""}">${s.removed} bớt</span>
+    </div>
+    <div class="toolbar">
+      <label class="check"><input type="checkbox" id="cmp-only" checked> Chỉ hiện khác biệt</label>
+      <input type="search" id="cmp-text" placeholder="Lọc theo ECU hoặc PN" aria-label="Lọc ECU hoặc PN">
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ECU</th><th>Variant / nhãn block</th><th>PN Type</th>
+        <th>A: <a href="#/frs/${d.a.id}">FRS ${esc(d.a.code)}</a> ${d.a.version == null ? "" : "V" + d.a.version}</th>
+        <th>B: <a href="#/frs/${d.b.id}">FRS ${esc(d.b.code)}</a> ${d.b.version == null ? "" : "V" + d.b.version}</th><th>Khác biệt</th></tr></thead>
+      <tbody id="cmp-rows"></tbody></table></div>
+    <section><h2>Ticket</h2><p class="muted">${tk.common} ticket có ở cả hai FRS, ${tk.only_b.length} chỉ có ở B, ${tk.only_a.length} chỉ có ở A.</p></section>
+    ${ticketSection(`Ticket chỉ có ở B (FRS ${esc(d.b.code)})`, tk.only_b)}
+    ${ticketSection(`Ticket chỉ có ở A (FRS ${esc(d.a.code)})`, tk.only_a)}`;
+  document.getElementById("cmp-only").onchange = (e) => { st.onlyDiff = e.target.checked; draw(); };
+  document.getElementById("cmp-text").oninput = (e) => { st.text = e.target.value; draw(); };
+  draw();
 }
 
 // ---------- cài đặt ----------
