@@ -1,6 +1,6 @@
 # PLAN: BOM Management Web Tool
 
-Phiên bản: 0.2 (draft, đã cập nhật theo trả lời của người dùng). Đi kèm `docs/requirements.md` (mã FR/NFR/AC/D dùng bên dưới).
+Phiên bản: 0.3 (draft, đã đối chiếu với `docs/sample.xlsx`). Đi kèm `docs/requirements.md` (mã FR/NFR/AC/D dùng bên dưới).
 
 Mục tiêu chính: **truy xuất nhanh**. Một người dùng, dưới 100 file BOM, Excel là nguồn sự thật.
 
@@ -44,14 +44,14 @@ frs(id, project_id, code, family, seg, major, minor, state)       -- state: has_
 frs_line(frs_id, line_id)                                          -- nhiều-nhiều (D4)
 frs_bom(frs_id, tpv_n, bom_file, file_mtime, hash)                 -- chỉ TPV cuối (D1)
 variant(id, frs_id, label, market, col_index)                      -- cột applicability (D5)
-ecu_block(id, frs_id, ecu_name, ecu_raw, block_label, remarks)
+ecu_block(id, frs_id, ecu_name, ecu_raw, block_label, first_row, last_row)   -- block_label = cột R
 block_variant(block_id, variant_id, value)                         -- X / O
 part(id, block_id, pn_type, did, vf_pn, vf_pn_norm, rev,
-     purchase_level, purchase_pn, purchase_before, purchase_after,
-     purchase_remarks, raw_json)
-change_content(id, frs_id, tpv_n, ecu_name, text, remarks)
-ticket(change_id, key, kind)                                       -- CCB, IMS, VF3, GTSC...
-com_bom(id, frs_id, ecu_name, pu_pn, hw_pn, sw_pn, bl_version, remark)
+     purchase_level, purchase_pn, purchase_pn_base,                 -- K và L (L = K bỏ rev)
+     purchase_after, purchase_remarks, src_row, raw_json)
+change_content(id, frs_id, tpv_n, ecu_raw, ecu_name, block_id NULL, text, remarks)   -- remarks = cột D
+ticket(change_id, key, prefix)                                     -- prefix cấu hình được: CCB, VF3, VF5, GTSC, MINIOGREEN, MHU3, IMS?
+com_bom(id, frs_id, ecu_raw, ecu_name, market, pu_pn, pu_pn_base, hw_pn, sw_pn, bl_version, remark)
 frs_relation(parent_frs_id, child_frs_id, source)                  -- auto | manual | fota_hint
 ecu_alias(alias, ecu_name, status)                                 -- auto | confirmed
 quality_issue(id, frs_id, severity, kind, location, raw_value)
@@ -72,11 +72,11 @@ Trong cùng `family` + `seg`:
 
 Kiểm tra bằng ví dụ người dùng: `3B.1.7.0 -> 3B.1.8.0 -> 3B.1.9.0 -> 3B.1.9.1 -> 3B.1.9.2`, nhánh `3B.1.8.0 -> 3B.1.8.1 -> 3B.1.8.2 -> 3B.1.8.3`. Sửa tay (`frs_relation.source = manual`) luôn thắng. Sheet FOTA và ghi chú carry-across chỉ dùng để cảnh báo mâu thuẫn.
 
-### 3.3 Tương thích COM_BOM (D7, FR-29)
-Với (ECU, HW, SW): tương thích khi tồn tại hàng khớp cả ba (sau chuẩn hóa PN). Không tương thích với lý do: `HW không có trong bảng` hoặc `HW đi với SW khác`. Ô merge dọc được điền xuống trước khi lập bảng.
+### 3.3 Tương thích COM_BOM (D7, FR-29, FR-31)
+Với (ECU, market, HW, SW): tương thích khi tồn tại hàng khớp (sau chuẩn hóa PN, ô merge dọc đã điền xuống). Không tương thích với lý do: `HW không có trong bảng` hoặc `HW đi với SW khác`. ECU **không có trong COM_BOM** thì trạng thái là "không theo dõi", không cảnh báo. Market của block lấy từ tiền tố nhãn variant (`VN FL` thành VN, `PHL BCO` thành PHL) để nối với tên ECU có hậu tố (`MHU VN`, `2IN1 (PHL)`).
 
 ### 3.4 Tra cứu ngược ticket (D13, FR-20)
-Trích key từ text change content khi quét, lưu vào `ticket`. Hai truy vấn: `key -> (frs, tpv_n, ecu)` và `frs -> các key`.
+Trích key từ text change content khi quét theo **danh sách prefix** (không dùng regex chung vì khớp nhầm PN như `SOW69011004AD-05`), chịu được `[KEY]`, `KEY<tab>`, ngoặc lệch `GTSC-7888]`, hai key liền nhau. Lưu vào `ticket`. Hai truy vấn: `key -> (frs, tpv_n, ecu)` và `frs -> các key`.
 
 ### 3.5 Tìm kiếm toàn cục (FR-22)
 Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi truy vấn nhiều bảng và trả kết quả phân nhóm. PN khớp theo `vf_pn_norm` và prefix.
@@ -84,15 +84,16 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 ## 4. Các giai đoạn
 
 ### Giai đoạn 0: Chốt yêu cầu
-- Trả lời 6 câu hỏi còn lại (requirements mục 10), đưa 3 file dump/sample vào repo hoặc chat để đối chiếu.
+- Trả lời các câu hỏi còn lại (requirements mục 10). `docs/sample.xlsx` đã được đối chiếu (requirements mục 7).
 - Đầu ra: requirements 1.0.
 
 ### Giai đoạn 1: Parser và chuẩn hóa
 - Đọc `frs_parser.py` hiện có và tái sử dụng ý tưởng (`select_bom_sheet`, `EMPTY_STREAK_STOP`, `normalize_text`, `parse_version_sort_key`).
-- `parser_bom` (template VF3 và EBUS), `parser_combom`, `parser_change`, đọc sheet `Data`.
+- `parser_bom`: chọn sheet theo header `Common ECU Name`; header hàng 3, dữ liệu từ hàng 4; cột theo text header đã chuẩn hóa (header R có xuống dòng); block bắt đầu ở mỗi hàng `HW`; điền ô merge K/L/M/N/R theo block; variant = các cột giữa `Purchase Remarks` và `Remarks Change Content`; **tính lại** F, G, I, L từ B, C, K (không tin cache công thức); BootLoader ép chuỗi và pad 4 ký tự. Một template duy nhất.
+- `parser_combom` (header hàng 2, điền merge dọc B/E/F), `parser_change` (header hàng 2, điền merge dọc cột A, TPV một hàng không merge), sheet `Data` tùy chọn.
 - `normalize`: PN, alias ECU, mã FRS. `frs_tree`: thuật toán 3.2.
 - Test với 3 file sample.
-- Xong khi: AC-01, AC-03, AC-05 (ở mức dữ liệu), AC-06.
+- Xong khi: AC-01 (15 block, 49 part row), AC-03 (đúng 2 cảnh báo: MHU PHL BCO và SS), AC-04 (ở mức dữ liệu), AC-05, AC-06.
 
 ### Giai đoạn 2: Quét thư mục và database
 - `scan.py` theo folder dự án, suy ra line từ folder và tên file (D12), chọn TPV cuối, quét gia tăng.
@@ -156,6 +157,5 @@ BOM_management/
 
 ## 7. Việc tiếp theo
 
-1. Người dùng trả lời 6 câu hỏi còn lại (requirements mục 10).
-2. Đưa 3 file sample hoặc dump vào chỗ mình đọc được (repo hoặc chat), vì phiên này chạy trên đám mây và chưa đọc được file trên máy người dùng.
-3. Bắt đầu Giai đoạn 1.
+1. Người dùng trả lời các câu hỏi còn lại (requirements mục 10), không chặn Giai đoạn 1.
+2. Bắt đầu Giai đoạn 1 (parser) với `docs/sample.xlsx` làm dữ liệu kiểm thử.
