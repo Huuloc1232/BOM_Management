@@ -87,7 +87,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - Trả lời các câu hỏi còn lại (requirements mục 10). `docs/sample.xlsx` đã được đối chiếu (requirements mục 7).
 - Đầu ra: requirements 1.0.
 
-### Giai đoạn 1: Parser và chuẩn hóa
+### Giai đoạn 1: Parser và chuẩn hóa (HOÀN THÀNH, 22 test đạt)
 - Đọc `frs_parser.py` hiện có và tái sử dụng ý tưởng (`select_bom_sheet`, `EMPTY_STREAK_STOP`, `normalize_text`, `parse_version_sort_key`).
 - `parser_bom`: chọn sheet theo header `Common ECU Name`; header hàng 3, dữ liệu từ hàng 4; cột theo text header đã chuẩn hóa (header R có xuống dòng); block bắt đầu ở mỗi hàng `HW`; điền ô merge K/L/M/N/R theo block; variant = các cột giữa `Purchase Remarks` và `Remarks Change Content`; **tính lại** F, G, I, L từ B, C, K (không tin cache công thức); BootLoader ép chuỗi và pad 4 ký tự. Một template duy nhất.
 - `parser_combom` (header hàng 2, điền merge dọc B/E/F), `parser_change` (header hàng 2, điền merge dọc cột A, TPV một hàng không merge), sheet `Data` tùy chọn.

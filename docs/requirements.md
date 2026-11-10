@@ -122,7 +122,7 @@ Quy ước:
 
 ### 5.9 Chất lượng dữ liệu
 - FR-40: Chuẩn hóa khi đọc (strip, gộp khoảng trắng) nhưng GIỮ giá trị gốc để đối chiếu.
-- FR-41: Báo cáo data quality cho mỗi lần quét: PN gãy hoặc cụt, `#VALUE!`, thiếu Rev, khác biệt giữa BOM và COM_BOM, và các bất thường đã thấy trong sample: BootLoader lưu dạng số (`2422`, `1234`) làm mất số 0 đầu; ô DID gõ cứng `F101` thay vì công thức; cột E ghi `BL` còn cột B ghi `BootLoader`; ký tự trắng đầu chuỗi trong COM_BOM (`' EEP69081000AE'`); tên ECU có khoảng trắng cuối (`'BCM '`) hoặc khác hoa thường (`2in1`); dòng Change content có ECU nhưng nội dung trống. Trang xem được trong tool.
+- FR-41: Báo cáo data quality cho mỗi lần quét: PN gãy hoặc cụt, `#VALUE!`, thiếu Rev, khác biệt giữa BOM và COM_BOM, và các bất thường đã thấy trong sample: BootLoader lưu dạng số (`2422`, `1234`) làm mất số 0 đầu; ô DID gõ cứng `F101` thay vì công thức; cột E ghi `BL` còn cột B ghi `BootLoader`; ký tự trắng đầu chuỗi trong COM_BOM (`' EEP69081000AE'`); tên ECU có khoảng trắng cuối (`'BCM '`) hoặc khác hoa thường (`2in1`); Purchase PN trùng HW PN (MHU `EEP69321151HA-01`). Trang xem được trong tool.
 - FR-42: Không sửa file Excel gốc (D9).
 
 ## 6. Yêu cầu phi chức năng
@@ -192,7 +192,7 @@ Quy tắc:
 - Cột C là text tự do, nhiều dòng, trộn ba loại: (1) mô tả thay đổi không có ticket (vd EAC TPV8), (2) ticket CCB/VF3/VF5/GTSC/MINIOGREEN kèm tiêu đề, (3) ghi chú `Carry over from FRS ...`, `Carry across SW from FRS ...`, `Lesson learnt: ...`. Dòng ticket có dạng `KEY<tab>tiêu đề`, `[KEY] tiêu đề - VinFast TMS`, hoặc `GTSC-7888] ...` (ngoặc lệch).
 - Cột D ghi chú phạm vi áp dụng: `Apply to VN Facelift`, `Apply to VN BCO2 & Phil BCO`, `Apply to Phil BCO`, `No new SW update, only new CCB is added ...`. Lưu nguyên văn và gắn vào ECU của hàng đó.
 - Sample có khoảng 160 key ticket (CCB: 39, VF3: 116, VF5: 1, GTSC: 1, MINIOGREEN: 1). Không có key `IMS` nào trong sample.
-- Có hàng ECU nhưng nội dung trống (`BMS (Low-cost PHL)` ở TPV5, `2in1` ở TPV1): giữ lại, đánh dấu "không có nội dung".
+- Ô nội dung (cột C, D) cũng có thể **merge dọc qua nhiều ECU**: `C13:C14` (BMS (Low-cost VN) và BMS (Low-cost PHL) dùng chung nội dung), `C31:C32` và `D31:D32` (BCM và 2in1). Parser gán nội dung chung cho mọi ECU trong vùng merge và đánh dấu `text_shared_with_row_above`. (Bản 0.3 ghi nhầm các hàng này là "nội dung trống".)
 
 ### 7.4 Đối chiếu BOM với COM_BOM (kết quả chạy thử trên sample)
 
