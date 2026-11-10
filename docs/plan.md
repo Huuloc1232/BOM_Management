@@ -1,6 +1,8 @@
 # PLAN: BOM Management Web Tool
 
-Phiên bản: 0.1 (draft). Đi kèm `docs/requirements.md` (mã FR/NFR/AC dùng bên dưới).
+Phiên bản: 0.2 (draft, đã cập nhật theo trả lời của người dùng). Đi kèm `docs/requirements.md` (mã FR/NFR/AC/D dùng bên dưới).
+
+Mục tiêu chính: **truy xuất nhanh**. Một người dùng, dưới 100 file BOM, Excel là nguồn sự thật.
 
 ## 1. Kiến trúc đề xuất
 
@@ -8,98 +10,121 @@ Phiên bản: 0.1 (draft). Đi kèm `docs/requirements.md` (mã FR/NFR/AC dùng 
 Browser (HTML + JS thuần)
    |  HTTP JSON, 127.0.0.1:8010
 Python stdlib http.server (app.py)
-   |-- _func/parser_bom.py        đọc sheet BOM theo header text
-   |-- _func/parser_combom.py     đọc COM_BOM, xử lý ô merge dọc
-   |-- _func/parser_change.py     đọc Change content, trích ticket
-   |-- _func/normalize.py         strip PN, alias ECU, parse mã FRS
-   |-- _func/db.py                SQLite (index) + metadata
-   `-- feature/                   search, compare, tree, report
+   |-- _func/scan.py             quét folder dự án, chọn V cao nhất mỗi FRS
+   |-- _func/parser_bom.py       đọc sheet BOM theo header text
+   |-- _func/parser_combom.py    đọc COM_BOM, xử lý ô merge dọc
+   |-- _func/parser_change.py    đọc Change content, trích ticket
+   |-- _func/normalize.py        strip PN, alias ECU, parse mã FRS
+   |-- _func/frs_tree.py         suy ra cha-con từ mã FRS + sửa tay
+   |-- _func/db.py               SQLite index + metadata
+   `-- feature/                  search, compare, compat, tickets, tree
 Database nguồn: Excel trên OneDrive (chỉ đọc)
 ```
 
-Theo convention: `_func/`, `_input/`, `_output/`, `assets/`, `feature/`; khởi chạy bằng `.vbs` -> `.bat` -> `startup_loader.py` (xem NFR-03). Tool desktop không dùng PyQt, đây là web tool kiểu Abbreviation-Dict.
+Theo convention: `_func/`, `_input/`, `_output/`, `assets/`, `feature/`; khởi chạy bằng `.vbs` -> `.bat` -> `startup_loader.py` (NFR-03).
 
-### Quyết định then chốt: dữ liệu lưu ở đâu
+### Lưu trữ dữ liệu
 
-Rủi ro: SQLite trên thư mục OneDrive dễ hỏng khi nhiều người mở hoặc sync conflict. Đề xuất hai lớp:
+Vì chỉ có một người dùng, rủi ro nhiều người ghi cùng lúc không còn. Vẫn giữ hai lớp để đơn giản và an toàn với OneDrive:
 
 | Lớp | Nội dung | Vị trí | Ghi |
 |---|---|---|---|
-| Nguồn sự thật | File Excel BOM | OneDrive share (thư mục database) | Chỉ đọc |
-| Metadata do người dùng nhập | Dự án, line, quan hệ cha-con FRS, alias ECU | 1 file JSON hoặc một file nhỏ trong OneDrive, ghi nguyên tử (ghi file tạm rồi đổi tên), kèm số phiên bản để phát hiện xung đột | Ghi ít |
-| Chỉ mục truy xuất | SQLite sinh ra từ Excel | Máy cá nhân (`%LOCALAPPDATA%\BOM_management\index.db`) | Dựng lại được bất cứ lúc nào |
+| Nguồn sự thật | File Excel BOM | OneDrive (thư mục database, theo folder dự án) | Chỉ đọc |
+| Metadata do người dùng nhập | Dự án, line, FRS tạo tay, gán FRS vào line, sửa cha-con, duyệt alias ECU | 1 file JSON trong thư mục tool trên OneDrive, ghi nguyên tử (ghi file tạm rồi đổi tên) | Ít |
+| Chỉ mục truy xuất | SQLite sinh từ Excel | Máy cá nhân (`%LOCALAPPDATA%\BOM_management\index.db`) | Xóa đi quét lại được |
 
-Nhờ vậy: mỗi máy tự dựng chỉ mục từ Excel (không xung đột), chỉ metadata nhỏ là dữ liệu chung. Nếu câu hỏi 10 trả lời "Excel luôn là nguồn sự thật" thì metadata cũng có thể là một file Excel/JSON nhỏ.
+Quét gia tăng theo (đường dẫn, thời gian sửa, hash): với dưới 100 file, quét đầy đủ lần đầu mất vài chục giây, các lần sau gần như tức thì. Nếu số file tăng thì kiến trúc này vẫn dùng được (NFR-09).
 
 ## 2. Mô hình dữ liệu (SQLite index)
 
 ```
 project(id, name, root_dir)
 line(id, project_id, parent_id, name)
-frs(id, line_id, code, family, seg, major, minor)
-tpv(id, frs_id, n, bom_file, file_mtime, hash)
-ecu_block(id, tpv_id, ecu_name, ecu_raw, variant, remarks)
-block_applicability(block_id, column_label, market, value)   -- X / O
+frs(id, project_id, code, family, seg, major, minor, state)       -- state: has_bom | no_bom
+frs_line(frs_id, line_id)                                          -- nhiều-nhiều (D4)
+frs_bom(frs_id, tpv_n, bom_file, file_mtime, hash)                 -- chỉ TPV cuối (D1)
+variant(id, frs_id, label, market, col_index)                      -- cột applicability (D5)
+ecu_block(id, frs_id, ecu_name, ecu_raw, block_label, remarks)
+block_variant(block_id, variant_id, value)                         -- X / O
 part(id, block_id, pn_type, did, vf_pn, vf_pn_norm, rev,
      purchase_level, purchase_pn, purchase_before, purchase_after,
      purchase_remarks, raw_json)
-change_content(id, tpv_id, ecu_name, text, remarks)
-ticket(change_id, key, kind)                                 -- CCB, VF3, GTSC...
-com_bom(id, tpv_id, ecu_name, pu_pn, hw_pn, sw_pn, bl_version, remark)
-frs_relation(parent_frs_id, child_frs_id, kind, source)      -- base_fota, carry_across, manual
-ecu_alias(alias, ecu_name)
-quality_issue(id, tpv_id, severity, kind, location, raw_value)
+change_content(id, frs_id, tpv_n, ecu_name, text, remarks)
+ticket(change_id, key, kind)                                       -- CCB, IMS, VF3, GTSC...
+com_bom(id, frs_id, ecu_name, pu_pn, hw_pn, sw_pn, bl_version, remark)
+frs_relation(parent_frs_id, child_frs_id, source)                  -- auto | manual | fota_hint
+ecu_alias(alias, ecu_name, status)                                 -- auto | confirmed
+quality_issue(id, frs_id, severity, kind, location, raw_value)
 ```
 
-Mỗi bảng giữ giá trị gốc (`raw`) cạnh giá trị đã chuẩn hóa (FR-33).
+Mỗi bảng giữ giá trị gốc (`raw`) cạnh giá trị đã chuẩn hóa (FR-40).
 
-## 3. Các giai đoạn
+## 3. Thuật toán chính
 
-### Giai đoạn 0: Chốt yêu cầu (trước khi code)
-- Người dùng trả lời 16 câu hỏi mở ở `requirements.md` mục 9.
-- Đối chiếu trực tiếp 3 file sample với bảng quy tắc parser (mục 6 của requirements), chốt lại cột/hàng.
-- Đầu ra: requirements bản 1.0, danh sách alias ECU ban đầu.
+### 3.1 Chọn TPV cuối (D1, FR-06)
+Nhóm file theo mã FRS (regex trong tên file/title), lấy số V lớn nhất. Hai file cùng V thì chọn theo thời gian sửa mới nhất và báo cảnh báo. Các V cũ hiển thị ở danh sách "bị bỏ qua".
 
-### Giai đoạn 1: Parser và chuẩn hóa (nền tảng)
+### 3.2 Cây FRS (D2, FR-35)
+Trong cùng `family` + `seg`:
+- minor > 0: cha = (major, minor - 1)
+- minor = 0: cha = (major - 1, 0)
+- Không có cha trong dữ liệu: nút cha "thiếu" (hiển thị mờ) hoặc nối lên tổ tiên gần nhất.
+
+Kiểm tra bằng ví dụ người dùng: `3B.1.7.0 -> 3B.1.8.0 -> 3B.1.9.0 -> 3B.1.9.1 -> 3B.1.9.2`, nhánh `3B.1.8.0 -> 3B.1.8.1 -> 3B.1.8.2 -> 3B.1.8.3`. Sửa tay (`frs_relation.source = manual`) luôn thắng. Sheet FOTA và ghi chú carry-across chỉ dùng để cảnh báo mâu thuẫn.
+
+### 3.3 Tương thích COM_BOM (D7, FR-29)
+Với (ECU, HW, SW): tương thích khi tồn tại hàng khớp cả ba (sau chuẩn hóa PN). Không tương thích với lý do: `HW không có trong bảng` hoặc `HW đi với SW khác`. Ô merge dọc được điền xuống trước khi lập bảng.
+
+### 3.4 Tra cứu ngược ticket (D13, FR-20)
+Trích key từ text change content khi quét, lưu vào `ticket`. Hai truy vấn: `key -> (frs, tpv_n, ecu)` và `frs -> các key`.
+
+### 3.5 Tìm kiếm toàn cục (FR-22)
+Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi truy vấn nhiều bảng và trả kết quả phân nhóm. PN khớp theo `vf_pn_norm` và prefix.
+
+## 4. Các giai đoạn
+
+### Giai đoạn 0: Chốt yêu cầu
+- Trả lời 6 câu hỏi còn lại (requirements mục 10), đưa 3 file dump/sample vào repo hoặc chat để đối chiếu.
+- Đầu ra: requirements 1.0.
+
+### Giai đoạn 1: Parser và chuẩn hóa
 - Đọc `frs_parser.py` hiện có và tái sử dụng ý tưởng (`select_bom_sheet`, `EMPTY_STREAK_STOP`, `normalize_text`, `parse_version_sort_key`).
-- `parser_bom`: detect sheet, header row, cột theo text, block ECU, ô merge, cột applicability, 2 template (VF3, EBUS).
-- `parser_combom`, `parser_change`, đọc sheet `Data`.
-- `normalize`: strip PN, alias ECU, tách mã FRS bằng regex.
-- Bộ kiểm thử với 3 file sample (script so khớp số ECU/block/part đếm tay).
-- Hoàn thành khi: AC-01, AC-03, AC-04 đạt ở mức dữ liệu (chưa có UI).
+- `parser_bom` (template VF3 và EBUS), `parser_combom`, `parser_change`, đọc sheet `Data`.
+- `normalize`: PN, alias ECU, mã FRS. `frs_tree`: thuật toán 3.2.
+- Test với 3 file sample.
+- Xong khi: AC-01, AC-03, AC-05 (ở mức dữ liệu), AC-06.
 
-### Giai đoạn 2: Database và import
-- Dựng schema SQLite, import một file, import cả thư mục (preview, tiến trình, báo lỗi).
-- Re-import và diff với lần trước (FR-10).
-- Báo cáo data quality (FR-34).
-- Hoàn thành khi: import 3 file trong vài giây, báo cáo cảnh báo hợp lý.
+### Giai đoạn 2: Quét thư mục và database
+- `scan.py` theo folder dự án, suy ra line từ folder và tên file (D12), chọn TPV cuối, quét gia tăng.
+- Schema SQLite, báo cáo data quality (FR-41).
+- Xong khi: quét thư mục mẫu trong vài giây, danh sách cảnh báo hợp lý.
 
-### Giai đoạn 3: Server và giao diện cốt lõi
-- `app.py` (http.server) + REST JSON cho project, line, FRS, ECU.
-- Dashboard dự án, cây line, trang chi tiết FRS/TPV/ECU (FR-01 đến FR-14).
-- `.vbs`, `.bat`, đăng ký `startup_loader`, cổng 8010.
-- Hoàn thành khi: dùng được từ trình duyệt, thêm dự án/line, import qua giao diện.
+### Giai đoạn 3: Server, dashboard và tra cứu cốt lõi
+- `app.py` + REST JSON; dashboard dự án, cây line, trang FRS/ECU/part (FR-01 đến FR-16).
+- Ô tìm kiếm toàn cục, where-used theo PN, lọc theo variant xe (FR-22 đến FR-26).
+- `.vbs`, `.bat`, cổng 8010.
+- Xong khi: AC-02.
 
-### Giai đoạn 4: Truy xuất và change content
-- Tìm theo FRS, theo PN (where-used), lọc, gần đúng (FR-20 đến FR-23).
-- Trang change content, link ticket, xuất Excel/CSV (FR-15 đến FR-19).
-- Hoàn thành khi: AC-02, AC-04 đạt qua giao diện.
+### Giai đoạn 4: Change content, ticket, so sánh
+- Trang change content, link ticket, tra cứu hai chiều CCB/IMS (FR-17 đến FR-21).
+- So sánh hai FRS theo ECU part number (FR-27).
+- Xong khi: AC-04, AC-07.
 
-### Giai đoạn 5: COM_BOM và so sánh
-- Ma trận HW x SW, truy vấn hai chiều, cảnh báo cặp ngoài COM_BOM (FR-25 đến FR-28).
-- So sánh hai FRS/TPV (FR-24).
-- Hoàn thành khi: AC-03 đạt qua giao diện.
+### Giai đoạn 5: COM_BOM
+- Truy vấn tương thích, ma trận HW x SW, cảnh báo cặp ngoài bảng (FR-28 đến FR-33).
+- Xong khi: AC-03 đạt qua giao diện.
 
 ### Giai đoạn 6: Sơ đồ cây FRS
-- Dựng cây Project > Line > FRS > TPV, quan hệ FRS (FR-29 đến FR-31).
-- Nhập/sửa quan hệ thủ công, gợi ý tự động từ sheet FOTA và ghi chú carry-across.
-- Hoàn thành khi: AC-05 đạt.
+- Vẽ cây (SVG hoặc canvas thuần), nhiều nhánh, bật/tắt LHD/RHD, sửa cha-con tay, cảnh báo mâu thuẫn với FOTA (FR-34 đến FR-38).
+- Xong khi: AC-05 đạt qua giao diện.
 
-### Giai đoạn 7: Chịu tải OneDrive và đóng gói
-- Thử hai người mở cùng lúc, ghi nguyên tử metadata, phát hiện xung đột (AC-06).
-- Hướng dẫn sử dụng, đăng ký vào `POWER_TOOLS`, chỗ tích hợp cho BOM_autofill_dev (NFR-08).
+### Giai đoạn 7: Hoàn thiện
+- Tạo FRS tay (FR-07), gán FRS vào nhiều line (FR-05).
+- Hướng dẫn sử dụng, đăng ký `POWER_TOOLS`, hook cho BOM_autofill_dev (NFR-08).
 
-## 4. Cấu trúc thư mục repo đề xuất
+Ghi chú thứ tự: nếu muốn dùng được sớm, Giai đoạn 1 đến 3 là bản tối thiểu đã đáp ứng mục tiêu "truy xuất nhanh".
+
+## 5. Cấu trúc thư mục repo đề xuất
 
 ```
 BOM_management/
@@ -107,29 +132,30 @@ BOM_management/
   src/
     app.py
     index.html
-    _func/         parser_*.py, normalize.py, db.py
-    feature/       search.py, compare.py, tree.py, report.py
+    _func/         scan.py, parser_*.py, normalize.py, frs_tree.py, db.py
+    feature/       search.py, compare.py, compat.py, tickets.py
     assets/        css, js
-    _input/        database mẫu / cấu hình
-    _output/       file export
+    _input/        cấu hình, ánh xạ segment, alias
+    _output/       file export (tùy chọn)
   tests/           so khớp với file sample
   BOM_MANAGEMENT.vbs
   run_bom_management_web.bat
 ```
 
-## 5. Rủi ro và cách giảm
+## 6. Rủi ro và cách giảm
 
 | Rủi ro | Cách giảm |
 |---|---|
-| Template mới (ECVan) | Parser detect cột theo text, cấu hình ánh xạ cột theo template |
-| PN bẩn | Giữ raw + norm, báo cáo quality, tìm gần đúng |
-| OneDrive conflict | Excel chỉ đọc, chỉ mục local, metadata ghi nguyên tử |
-| Cây FRS thiếu nguồn | Gợi ý tự động + nhập tay, đánh dấu nguồn quan hệ |
+| PN bẩn | Giữ raw + norm, báo cáo quality, tìm theo prefix |
+| Quy tắc cha-con có ngoại lệ | Sửa tay thắng quy tắc, cảnh báo khi mâu thuẫn FOTA |
+| Alias ECU không đồng nhất | Tự ghép từ cột A/D và COM_BOM, màn hình duyệt các ghép không chắc |
 | Sheet có 1 triệu hàng | Dừng theo chuỗi hàng trống |
 | pip bị chặn | Chỉ stdlib + openpyxl (đã có) |
+| OneDrive sync làm hỏng JSON metadata | Ghi nguyên tử, giữ bản sao lưu gần nhất |
+| Số file tăng | Quét gia tăng + SQLite index (NFR-09) |
 
-## 6. Việc tiếp theo
+## 7. Việc tiếp theo
 
-1. Người dùng trả lời các câu hỏi mở (`requirements.md` mục 9).
-2. Cung cấp 3 file sample (hoặc dump) vào phiên làm việc để đối chiếu parser, vì phiên này chưa đọc được file trên máy người dùng.
-3. Sau đó bắt đầu Giai đoạn 1.
+1. Người dùng trả lời 6 câu hỏi còn lại (requirements mục 10).
+2. Đưa 3 file sample hoặc dump vào chỗ mình đọc được (repo hoặc chat), vì phiên này chạy trên đám mây và chưa đọc được file trên máy người dùng.
+3. Bắt đầu Giai đoạn 1.
