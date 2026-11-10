@@ -2,7 +2,23 @@
 
 Web tool local để truy xuất nhanh HW/SW BOM theo FRS. Tài liệu: `docs/requirements.md`, `docs/plan.md`.
 
-Trạng thái: Giai đoạn 1 (parser) và 2 (quét thư mục, chỉ mục SQLite) xong. Chưa có server và giao diện.
+Trạng thái: Giai đoạn 1 đến 3 xong (parser, quét thư mục, chỉ mục SQLite, web tool tra cứu). Chưa có: so sánh hai FRS, ma trận COM_BOM, sơ đồ cây FRS.
+
+## Chạy web tool
+
+Trên Windows: bấm đúp `BOM_MANAGEMENT.vbs` (chạy ẩn) hoặc `run_bom_management_web.bat` (có cửa sổ console). Trình duyệt mở `http://127.0.0.1:8010/`.
+
+Hoặc chạy tay:
+
+```bash
+python src/app.py --open
+```
+
+Lần đầu, bấm "Thư mục database" và dán đường dẫn thư mục chứa các folder dự án. Tool quét gia tăng mỗi lần khởi động; bấm "Quét lại" sau khi thêm hoặc sửa file Excel.
+
+- Ô tìm kiếm nhận mã FRS, part number (không cần gõ revision), tên ECU, mã ticket. Phím `/` để nhảy vào ô tìm.
+- "Thêm dự án" và "Thêm line" tạo folder tương ứng trong thư mục database. Tool không bao giờ sửa file Excel.
+- Server chỉ lắng nghe `127.0.0.1`. Cổng 8010 bận thì dùng cổng kế tiếp.
 
 ## Chạy parser trên một file BOM
 
@@ -63,3 +79,6 @@ python -m unittest discover -s tests
 - `src/_func/parse_file.py`: gộp kết quả một file, có CLI
 - `src/_func/db.py`: schema và truy vấn chỉ mục SQLite
 - `src/_func/scan.py`: quét thư mục, chọn TPV cuối, quét gia tăng, có CLI
+- `src/feature/queries.py`: truy vấn cho giao diện (dashboard, FRS, tìm kiếm)
+- `src/app.py`: server web local (stdlib `http.server`)
+- `src/index.html`, `src/assets/`: giao diện (HTML, CSS, JS thuần)

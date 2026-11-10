@@ -135,7 +135,11 @@ class ScanTest(unittest.TestCase):
         self.assertEqual([(i["frs"], i["version"]) for i in vf3["imported"]], [("3B.1.11.0", 7)])
         self.assertEqual([i["frs"] for i in vf3["removed"]], ["3A.6.10.0"])
         self.assertEqual([r[0] for r in self.conn.execute("SELECT name FROM project")], ["VF3"])
-        self.assertEqual([r[0] for r in self.conn.execute("SELECT path FROM line ORDER BY 1")], ["FL"])  # line Legacy tự dọn
+        # folder Legacy/RHD vẫn còn nên line vẫn còn (line rỗng); xóa folder thì line tự dọn
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT path FROM line ORDER BY 1")], ["FL", "Legacy", "Legacy/RHD"])
+        shutil.rmtree(self.root / "VF3" / "Legacy")
+        self.scan()
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT path FROM line ORDER BY 1")], ["FL"])
         self.assertEqual(report["counts"]["frs"], 2)
 
     def test_manual_line_link_survives_reimport(self):

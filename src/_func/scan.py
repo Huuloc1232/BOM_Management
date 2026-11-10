@@ -209,16 +209,25 @@ def scan_project(conn, project_dir: Path, name: str | None = None, force: bool =
             conn.execute("INSERT INTO import_log(at, project, frs_code, action, old_version) VALUES(?,?,?, 'removed', ?)", (now, name, row["code"], row["version"]))
             report["removed"].append({"frs": row["code"], "version": row["version"]})
 
-    # Dọn line tự tạo không còn FRS và không còn line con
+    # Mỗi folder con là một line, kể cả folder chưa có file (line vừa tạo, FR-03)
+    folders = set()
+    for d in sorted(project_dir.rglob("*")):
+        if d.is_dir():
+            rel_parts = d.relative_to(project_dir).parts
+            if not any(part.startswith(SKIP_DIR_PREFIXES) for part in rel_parts):
+                folders.add("/".join(rel_parts))
+                db.ensure_line(conn, project_id, list(rel_parts))
+    # Dọn line tự tạo: không còn folder, không còn FRS và không còn line con
     while True:
-        cur = conn.execute(
-            """DELETE FROM line WHERE project_id=? AND source='auto'
+        stale = [r["id"] for r in conn.execute(
+            """SELECT id, path FROM line WHERE project_id=? AND source='auto'
                   AND id NOT IN (SELECT line_id FROM frs_line)
                   AND id NOT IN (SELECT parent_id FROM line WHERE parent_id IS NOT NULL)""",
             (project_id,),
-        )
-        if cur.rowcount == 0:
+        ) if r["path"] not in folders]
+        if not stale:
             break
+        conn.executemany("DELETE FROM line WHERE id=?", [(i,) for i in stale])
     conn.commit()
     return report
 
@@ -236,6 +245,9 @@ def scan_database(conn, root, force: bool = False, progress=None, single_project
             if row["name"] not in names:  # folder dự án đã bị xóa
                 conn.execute("DELETE FROM project WHERE id=?", (row["id"],))
         conn.commit()
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('last_scan', ?)", (_now(),))
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('last_root', ?)", (str(root),))
+    conn.commit()
     return {"root": str(root), "seconds": round(time.time() - started, 2), "projects": reports, "counts": db.counts(conn)}
 
 

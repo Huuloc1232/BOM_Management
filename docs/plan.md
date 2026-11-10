@@ -100,7 +100,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - Schema SQLite, báo cáo data quality (FR-41).
 - Xong khi: quét thư mục mẫu trong vài giây, danh sách cảnh báo hợp lý.
 
-### Giai đoạn 3: Server, dashboard và tra cứu cốt lõi
+### Giai đoạn 3: Server, dashboard và tra cứu cốt lõi (HOÀN THÀNH, 45 test đạt; launcher .bat/.vbs chưa thử trên Windows, chưa nối startup_loader)
 - `app.py` + REST JSON; dashboard dự án, cây line, trang FRS/ECU/part (FR-01 đến FR-16).
 - Ô tìm kiếm toàn cục, where-used theo PN, lọc theo variant xe (FR-22 đến FR-26).
 - `.vbs`, `.bat`, cổng 8010.

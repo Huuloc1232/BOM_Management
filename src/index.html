@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BOM Management</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/">BOM Management</a>
+  <form id="search-form" class="search" role="search">
+    <input id="search-input" type="search" autocomplete="off" spellcheck="false"
+           placeholder="Tìm mã FRS, part number, ECU, ticket (vd 3B.1.11.0, BAT69011016AA, MHU, CCB-26107)" aria-label="Tìm kiếm">
+    <button type="submit">Tìm</button>
+  </form>
+  <button id="settings-btn" class="ghost" type="button">Thư mục database</button>
+</header>
+<div id="notice" class="notice" hidden></div>
+<main id="view" tabindex="-1"></main>
+<dialog id="settings-dialog">
+  <form method="dialog" id="settings-form">
+    <h2>Thư mục database</h2>
+    <p class="muted">Mỗi folder con là một dự án, các folder bên trong là line xe. File Excel chỉ được đọc, không bị sửa.</p>
+    <label>Đường dẫn
+      <input id="root-input" type="text" spellcheck="false" placeholder="C:\...\BOM_management\database">
+    </label>
+    <p id="settings-info" class="muted"></p>
+    <div class="row-end">
+      <button type="button" id="rescan-btn" class="ghost">Quét lại</button>
+      <button type="button" id="force-btn" class="ghost" title="Đọc lại mọi file, kể cả file không đổi">Quét lại toàn bộ</button>
+      <button type="button" id="close-btn" class="ghost">Đóng</button>
+      <button type="submit" id="save-root-btn">Lưu và quét</button>
+    </div>
+  </form>
+</dialog>
+<script src="/assets/app.js"></script>
+</body>
+</html>
