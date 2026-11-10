@@ -1,6 +1,6 @@
 # PLAN: BOM Management Web Tool
 
-Phiên bản: 0.3 (draft, đã đối chiếu với `docs/sample.xlsx`). Đi kèm `docs/requirements.md` (mã FR/NFR/AC/D dùng bên dưới).
+Phiên bản: 1.0 (đã chốt yêu cầu, bắt đầu Giai đoạn 1). Đi kèm `docs/requirements.md` (mã FR/NFR/AC/D dùng bên dưới).
 
 Mục tiêu chính: **truy xuất nhanh**. Một người dùng, dưới 100 file BOM, Excel là nguồn sự thật.
 
@@ -48,7 +48,7 @@ ecu_block(id, frs_id, ecu_name, ecu_raw, block_label, first_row, last_row)   -- 
 block_variant(block_id, variant_id, value)                         -- X / O
 part(id, block_id, pn_type, did, vf_pn, vf_pn_norm, rev,
      purchase_level, purchase_pn, purchase_pn_base,                 -- K và L (L = K bỏ rev)
-     purchase_after, purchase_remarks, src_row, raw_json)
+     src_row, raw_json)                                             -- cột M, N bỏ qua (D15)
 change_content(id, frs_id, tpv_n, ecu_raw, ecu_name, block_id NULL, text, remarks)   -- remarks = cột D
 ticket(change_id, key, prefix)                                     -- prefix cấu hình được: CCB, VF3, VF5, GTSC, MINIOGREEN, MHU3, IMS?
 com_bom(id, frs_id, ecu_raw, ecu_name, market, pu_pn, pu_pn_base, hw_pn, sw_pn, bl_version, remark)
@@ -83,7 +83,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 
 ## 4. Các giai đoạn
 
-### Giai đoạn 0: Chốt yêu cầu
+### Giai đoạn 0: Chốt yêu cầu (HOÀN THÀNH)
 - Trả lời các câu hỏi còn lại (requirements mục 10). `docs/sample.xlsx` đã được đối chiếu (requirements mục 7).
 - Đầu ra: requirements 1.0.
 

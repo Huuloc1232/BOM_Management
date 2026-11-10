@@ -1,7 +1,7 @@
 # REQUIREMENTS: BOM Management Web Tool
 
-Phiên bản: 0.3 (draft, đã đối chiếu với `docs/sample.xlsx`)
-Trạng thái: còn một số câu hỏi nhỏ ở mục 10, không chặn việc bắt đầu Giai đoạn 1.
+Phiên bản: 1.0 (đã chốt, sẵn sàng bắt đầu Giai đoạn 1)
+Trạng thái: mọi câu hỏi mở đã được trả lời (mục 10).
 
 Lưu ý nguồn dữ liệu: mục 7 (quy tắc parser) đã được đối chiếu trực tiếp với `docs/sample.xlsx` (VF3 FRS 3B.1.11.0 V8), là **template chuẩn cho tất cả dự án**. Các quan sát về file VF3 Legacy 3A.1.11.0 và EBUS trong brief ban đầu không còn là căn cứ thiết kế (mọi dự án dùng cùng một template).
 
@@ -20,7 +20,7 @@ Web tool chạy LOCAL cho một người dùng, để **truy xuất nhanh** HW/S
 
 | # | Quyết định |
 |---|---|
-| D1 | Mỗi FRS chỉ cần **TPV cuối cùng** (V lớn nhất). File đó chứa toàn bộ thay đổi của các V trước và là thông tin chính thức của FRS. Các file V cũ không cần lưu BOM. |
+| D1 | Mỗi FRS chỉ cần **TPV cuối cùng** (V lớn nhất). File đó chứa toàn bộ thay đổi của các V trước và là thông tin chính thức của FRS. Các file V cũ không cần lưu BOM. Tên file dạng `FRS3B.1.11.0.xlsx` (không chứa số V); **số V lấy từ title ô A1 của sheet BOM** (vd `FRS 3B.1.11.0 V8 LHD`) và từ tên sheet. Nếu có nhiều file cùng mã FRS thì chọn V lớn nhất, bằng nhau thì file sửa gần nhất, và cảnh báo. |
 | D2 | Quan hệ cha-con giữa các FRS suy ra từ mã FRS (mục 5.7), có thể tách nhánh, người dùng sửa tay được. |
 | D3 | Segment giữa của mã FRS: `1` = LHD, `6` = RHD. Chưa có quy ước chính thức cho giá trị khác, dùng bảng ánh xạ cấu hình được. |
 | D4 | Một FRS có thể thuộc nhiều line cùng lúc (vd hai line dùng hai biến thể pin). LHD và RHD là hai FRS khác nhau (khác segment), không dùng chung FRS. |
@@ -31,7 +31,12 @@ Web tool chạy LOCAL cho một người dùng, để **truy xuất nhanh** HW/S
 | D9 | BOM, PN và mọi thông tin kèm theo chỉ đọc từ Excel. **FRS được phép tạo thêm trong tool** (gắn với line, gắn với file Excel) và truy xuất từ file Excel. |
 | D10 | So sánh hai FRS tập trung vào **ECU part number** (HW, SW, BL, SW_BASIC, SW_APP, CAL...). |
 | D11 | Alias tên ECU lấy từ chính file Excel (cột A là tên chuẩn, cột D là tên theo system, cột E có thể ghi `BL` thay vì `BootLoader`, tên ở COM_BOM và Change content có hậu tố variant). Tool tự ghép, cho người dùng duyệt các ghép nối không chắc chắn. |
-| D12 | Database tổ chức **theo folder dự án**. Line xe suy ra từ **cả cấu trúc folder và tên file**; khi hai nguồn mâu thuẫn thì hiển thị để người dùng chọn. |
+| D12 | Database tổ chức **theo folder dự án**. Line xe suy ra từ **cả cấu trúc folder và tên file** (đã đồng ý, quy ước folder như `VF3\FL\`, `VF3\Legacy\LHD\`); khi hai nguồn mâu thuẫn thì hiển thị để người dùng chọn. Việc gán FRS vào nhiều line do người dùng làm tay trong tool và đổi được về sau. |
+| D14 | Link ticket: mọi key đều mở `https://tms.vinfast.vn/browse/<key>`. Prefix ban đầu: `CCB`, `VF3`, `VF3RHD`, `VF5`, `GTSC`, `MINIOGREEN`, `MHU3`, `IMS`; thêm prefix qua cấu hình. |
+| D15 | Cột M (after Reflashing) và N (Purchase Remarks) **bỏ qua**, không lưu, không dùng. PU PN hiện hành là cột K (và L = K bỏ rev). |
+| D16 | Kết quả tìm PN **tách từng block thành một dòng riêng** (không gộp theo ECU + PN), kể cả khi hai block dùng chung PN. |
+| D17 | Nhãn block ở cột R là text tự do, giữ nguyên văn; tool chỉ ghép gần đúng với tên ECU trong Change content và cho người dùng duyệt. |
+| D18 | Segment mã FRS ngoài `1` và `6` hiển thị số thô (chưa đặt nhãn). FRS có minor = 0 mà major - 1 không tồn tại là gốc cây. |
 | D13 | Ticket (CCB, IMS, và các key Jira) có tra cứu ngược: ticket thuộc FRS/ECU nào, và FRS đã release những ticket nào. |
 
 ## 4. Mô hình dữ liệu (khái niệm)
@@ -64,7 +69,7 @@ Quy ước:
 - FR-05: Gán một FRS vào nhiều line (D4).
 
 ### 5.2 FRS, import và quét thư mục
-- FR-06: Quét thư mục dự án, nhận diện file BOM, nhóm theo mã FRS, **chọn file V cao nhất** làm TPV cuối (D1). Hiển thị các V cũ bị bỏ qua.
+- FR-06: Quét thư mục dự án, nhận diện file BOM theo tên (`FRS<mã>.xlsx`) và theo nội dung, nhóm theo mã FRS, **chọn V cao nhất** (đọc từ title/tên sheet) làm TPV cuối (D1). Hiển thị các file bị bỏ qua.
 - FR-07: Tạo FRS mới trong tool (D9): nhập mã FRS, gán line, gắn file Excel (có thể gắn sau). FRS chưa có file hiển thị trạng thái "chưa có BOM".
 - FR-08: Import tự detect: mã FRS và số V từ tên file và title sheet, sheet BOM chính, hàng header, vị trí cột theo TEXT header, cột applicability (variant xe).
 - FR-09: Hỗ trợ template chuẩn duy nhất (D6, mục 7). Parser detect cột theo text header (đã chuẩn hóa khoảng trắng và xuống dòng) và chịu được số cột variant thay đổi.
@@ -88,7 +93,7 @@ Quy ước:
 ### 5.5 Truy xuất (tính năng trọng tâm)
 - FR-22: Một ô tìm kiếm toàn cục: gõ mã FRS, PN, tên ECU hoặc mã ticket đều ra kết quả phân nhóm, phản hồi dưới 1 giây.
 - FR-23: Tìm theo FRS: trả về các ECU, variant và toàn bộ PN.
-- FR-24: Tìm theo PN (where-used): trả về ECU, PN Type, FRS, line, variant xe đang dùng PN đó.
+- FR-24: Tìm theo PN (where-used): mỗi **block** là một dòng kết quả (D16), gồm ECU, nhãn block, PN Type, FRS, line, variant xe. Ví dụ `BAT69011016AA-01` ra hai dòng BMS (VN BCO2 và PHL BCO).
 - FR-25: Chuẩn hóa PN khi khớp: bỏ khoảng trắng đầu/cuối và chen giữa; hỗ trợ tìm theo prefix và bỏ revision (PU PN không rev so với HW PN có rev).
 - FR-26: Lọc theo dự án, line, variant xe, ECU, PN Type.
 - FR-27: So sánh hai FRS theo ECU part number (D10): bảng ECU x PN Type, tô màu khác biệt, lọc "chỉ hiện khác biệt".
@@ -211,16 +216,18 @@ Nối theo (ECU, market, HW, SW, BL) cho 15 block: 5 block khớp (ACM, MHU bloc
 - Ý nghĩa segment ngoài `1` và `6` (vd `8` trong `3B.8.7.0`) chưa rõ.
 - Số file tăng nhiều trong tương lai (NFR-09).
 
-## 10. Câu hỏi còn lại
+## 10. Các câu hỏi đã chốt
 
-Đã được trả lời nhờ `sample.xlsx` (không cần hỏi nữa): cấu trúc cột/hàng (mục 7), template duy nhất, market suy từ nhãn variant, cột công thức F/G/I/L.
+| # | Câu hỏi | Quyết định |
+|---|---|---|
+| 1 | Hiển thị PN dùng chung giữa các block | Tách mỗi block một dòng (D16) |
+| 2 | Định dạng và link ticket IMS | Mọi key mở `https://tms.vinfast.vn/browse/<key>` (D14). `MHU3-12705813` được nhận như một key (prefix `MHU3`) |
+| 3 | Cột M, N | Bỏ qua (D15) |
+| 4 | Nhãn block cột R | Text tự do, ghép gần đúng rồi duyệt (D17) |
+| 5 | FRS thuộc nhiều line | Người dùng gán tay, đổi được (D12) |
+| 6 | Segment ngoài 1 và 6 | Hiển thị số thô (D18) |
+| 7 | Minor = 0 không có major - 1 | Là gốc cây (D18) |
+| 8 | Tên file | `FRS3B.1.11.0.xlsx`; số V đọc từ trong file (D1) |
+| 9 | Quy ước folder suy ra line | Đồng ý quy ước (D12) |
 
-1. (Câu 7 cũ) Sample cho một ví dụ thật: BMS có 3 block, hai block (VN BCO2 và PHL BCO) cùng HW PN `BAT69011016AA-01` nhưng khác Purchase PN và khác SW. Khi tìm PN `BAT69011016AA-01`, hiển thị một dòng gộp "BMS, VN BCO2 + PHL BCO" rồi mở rộng ra từng block, hay luôn tách hai dòng? Mặc định: gộp theo (ECU, PN), mở rộng ra block.
-2. IMS: định dạng key (`IMS-12345`?) và có link web riêng không? Sample không có key IMS nào. `MHU3-12705813` (trong CCB-26107) có phải là một key cần tra cứu không?
-3. Cột M (Purchase PN after Reflashing) và N (Purchase Remarks) trống trong sample: có dự án nào dùng, và khi có thì cột nào (K hay M) là PU PN "hiện hành" để so sánh và nối COM_BOM?
-4. Nhãn block ở cột R (`VN FL: BMS (CKD)`, `VN with PTC`, `Phil non PTC`) là text tự do. Chấp nhận để tool giữ nguyên văn và ghép gần đúng với tên ECU trong Change content (`BMS (CKD VN)`...) rồi cho bạn duyệt?
-5. Một FRS có thể thuộc nhiều line (D4): file Excel có ghi line nào không, hay bạn gán tay trong tool?
-6. Segment ngoài `1` và `6` (vd `8` trong `3B.8.7.0` xuất hiện trong tiêu đề ticket): hiển thị số thô, hay đặt nhãn trong màn hình cấu hình?
-7. FRS có minor = 0 mà major - 1 không tồn tại (vd `3B.1.7.0`): coi là gốc cây, đúng không?
-8. File có tên lạ (`V8_final`...): chọn theo số V lớn nhất hay thời gian sửa mới nhất? (Tên file sample là `sample.xlsx` nên tên thật chưa thấy.)
-9. Quy ước đặt folder để suy ra line (vd `VF3\FL\`, `VF3\Legacy\LHD\`)?
+Giả định cần lưu ý (mình suy từ câu trả lời, sửa nếu sai): (a) vì tên file không chứa số V, mỗi FRS thường chỉ có một file, và quy tắc "V lớn nhất" chỉ dùng khi có nhiều file cùng mã; (b) `IMS` vẫn thuộc danh sách prefix nhưng dạng key (`IMS-<số>`) chưa được xác nhận, sample không có.
