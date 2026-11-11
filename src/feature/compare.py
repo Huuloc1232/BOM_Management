@@ -121,7 +121,7 @@ def frs_tickets(conn, frs_id: int) -> list[dict]:
     return sorted(out.values(), key=lambda t: (-(t["first_tpv"] or 0), t["prefix"], int(t["key"].rsplit("-", 1)[1])))
 
 
-def frs_list(conn) -> list[dict]:
+def frs_list(conn, meta: dict | None = None) -> list[dict]:
     """Danh sách FRS cho ô chọn so sánh, kèm FRS cha theo cây (mặc định để so sánh)."""
     rows = [dict(r) for r in conn.execute(
         """SELECT f.id, f.project_id, p.name AS project, f.code, f.version, f.side
@@ -130,7 +130,10 @@ def frs_list(conn) -> list[dict]:
     for r in rows:
         by_project.setdefault(r["project_id"], []).append(r)
     for items in by_project.values():
-        tree = build_tree([r["code"] for r in items])
+        codes = {r["code"] for r in items}
+        manual = {c: p for c, p in (meta or {}).get("projects", {}).get(items[0]["project"], {}).get("frs_parent", {}).items()
+                  if c in codes and (p is None or p in codes)}
+        tree = build_tree([r["code"] for r in items], manual)
         ids = {r["code"]: r["id"] for r in items}
         for r in items:
             parent = tree["nodes"][r["code"]]["parent"]

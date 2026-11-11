@@ -116,7 +116,12 @@ function lineTree(lines, projectId, selected) {
   return build(null).replace(/^<ul>/, '<ul class="tree">');
 }
 
+const projectTabs = (id, cur) => `<div class="tabs" role="tablist">
+  <button type="button" role="tab" class="${cur === "list" ? "on" : ""}" aria-selected="${cur === "list"}" onclick="location.hash='#/project/${id}'">Danh sách FRS</button>
+  <button type="button" role="tab" class="${cur === "tree" ? "on" : ""}" aria-selected="${cur === "tree"}" onclick="location.hash='#/project/${id}?view=tree'">Sơ đồ cây FRS</button></div>`;
+
 async function renderProject(id, params) {
+  if (params.view === "tree") return renderProjectTree(id, params);
   const d = await api(`/api/project/${id}`);
   const selected = params.line ? Number(params.line) : null;
   const line = d.lines.find((l) => l.id === selected) || null;
@@ -143,6 +148,7 @@ async function renderProject(id, params) {
   view.innerHTML = `
     <div class="crumbs"><a href="#/">Dự án</a> / ${esc(d.project.name)}${line ? " / " + esc(line.path) : ""}</div>
     <div class="head"><h1>${esc(d.project.name)}${line ? ` <span class="muted">· ${esc(line.path)}</span>` : ""}</h1></div>
+    ${projectTabs(id, "list")}
     <div class="split">
       <aside class="panel">
         <h2>Line xe</h2>
@@ -170,6 +176,130 @@ async function renderProject(id, params) {
       renderProject(id, params);
     } catch (e) { showNotice(e.message, "error"); }
   };
+}
+
+// ---------- sơ đồ cây FRS ----------
+const TREE = { cw: 196, ch: 74, nw: 164, nh: 50, pad: 16, gap: 30 };
+const CARRY_TEXT = { ancestor: "tổ tiên trong cây", other_branch: "nhánh khác", other_segment: "dòng/segment khác", not_indexed: "chưa có file", other_project: "dòng xe khác" };
+const treeState = { hidden: new Set(), zoom: 1, carry: false, selected: null };
+
+async function renderProjectTree(id, params) {
+  let d = await api(`/api/project/${id}/tree`);
+  if (treeState.projectId !== id) Object.assign(treeState, { projectId: id, hidden: new Set(), zoom: 1, carry: false, selected: params.frs || null });
+  view.innerHTML = `
+    <div class="crumbs"><a href="#/">Dự án</a> / <a href="#/project/${id}">${esc(d.project.name)}</a> / Sơ đồ cây FRS</div>
+    <div class="head"><h1>${esc(d.project.name)}</h1></div>
+    ${projectTabs(id, "tree")}
+    <div id="tree-root"></div>`;
+  const root = document.getElementById("tree-root");
+
+  const draw = () => {
+    if (!d.nodes.length) { root.innerHTML = '<div class="empty">Dự án chưa có FRS nào.</div>'; return; }
+    const keys = [...new Set(d.trees.map((t) => t.key))];
+    const labelOf = Object.fromEntries(d.trees.map((t) => [t.key, t.label]));
+    const visible = d.trees.filter((t) => !treeState.hidden.has(t.key));
+    // dồn các cây đang hiện lên trên, mỗi cây có một dòng tiêu đề
+    const yOf = {};
+    let y = TREE.pad, cols = 1;
+    const titles = [];
+    for (const t of visible) {
+      titles.push({ y: y + 14, text: `${t.label} · gốc FRS ${t.root}` });
+      y += TREE.gap;
+      for (let r = 0; r < t.rows; r++) yOf[t.row_start + r] = y + r * TREE.ch;
+      y += t.rows * TREE.ch;
+      cols = Math.max(cols, t.cols);
+    }
+    const W = TREE.pad * 2 + cols * TREE.cw - (TREE.cw - TREE.nw), H = y + TREE.pad;
+    const shown = d.nodes.filter((n) => n.row in yOf);
+    const at = Object.fromEntries(shown.map((n) => [n.code, { x: TREE.pad + n.col * TREE.cw, y: yOf[n.row] }]));
+    const edges = shown.filter((n) => n.parent_code && at[n.parent_code]).map((n) => {
+      const a = at[n.parent_code], b = at[n.code];
+      const x1 = a.x + TREE.nw, y1 = a.y + TREE.nh / 2, x2 = b.x, y2 = b.y + TREE.nh / 2, mx = x1 + (TREE.cw - TREE.nw) / 2;
+      const path = y1 === y2 ? `M${x1},${y1}H${x2}` : `M${x1},${y1}H${mx}V${y2}H${x2}`;
+      const cls = `edge ${n.skipped.length ? "gap" : ""} ${n.source === "manual" ? "manual" : ""}`;
+      return `<path class="${cls}" d="${path}">${n.skipped.length ? `<title>Chưa có file của FRS trung gian: ${esc(n.skipped.join(", "))}</title>` : ""}</path>`;
+    }).join("");
+    // liên kết carry-over: luôn vẽ cho FRS đang chọn; bật ô đánh dấu thì vẽ cho mọi FRS
+    const carry = shown.filter((n) => treeState.carry || n.code === treeState.selected).flatMap((n) => n.carry.filter((h) => h.id && at[h.code] && h.relation !== "ancestor").map((h) => {
+      const a = at[h.code], b = at[n.code];
+      const x1 = a.x + TREE.nw / 2, y1 = a.y + TREE.nh, x2 = b.x + TREE.nw / 2, y2 = b.y + (b.y > a.y ? 0 : TREE.nh);
+      return `<path class="carry" d="M${x1},${y1}C${x1},${y1 + 26} ${x2},${y2 + (b.y > a.y ? -26 : 26)} ${x2},${y2}"><title>Carry-over từ FRS ${esc(h.code)} sang FRS ${esc(n.code)}</title></path>`;
+    })).join("");
+    const nodes = shown.map((n) => {
+      const p = at[n.code];
+      const cls = ["node", n.source === "manual" ? "manual" : "", treeState.selected === n.code ? "selected" : ""].join(" ");
+      const sub = [n.version == null ? "" : "V" + n.version, n.side, n.lines].filter(Boolean).join(" · ");
+      return `<g class="${cls}" data-code="${esc(n.code)}" tabindex="0" role="button" aria-label="FRS ${esc(n.code)}${n.parent_code ? ", cha " + esc(n.parent_code) : ", gốc cây"}" transform="translate(${p.x},${p.y})">
+        <rect width="${TREE.nw}" height="${TREE.nh}" rx="7"/>
+        <text class="t1" x="10" y="20">FRS ${esc(n.code)}</text><text class="t2" x="10" y="38">${esc(sub.length > 24 ? sub.slice(0, 23) + "…" : sub)}</text>
+        ${n.warning_count ? `<circle class="dot" cx="${TREE.nw - 12}" cy="13" r="5"><title>${n.warning_count} cảnh báo dữ liệu</title></circle>` : ""}
+        ${n.source === "manual" ? `<text class="t3" x="${TREE.nw - 8}" y="42" text-anchor="end">sửa tay</text>` : ""}</g>`;
+    }).join("");
+    const sel = d.nodes.find((n) => n.code === treeState.selected);
+    root.innerHTML = `
+      <div class="toolbar">
+        <span class="muted">Nhánh:</span>
+        ${keys.map((k) => `<button type="button" class="chip ${treeState.hidden.has(k) ? "" : "on"}" data-key="${esc(k)}" aria-pressed="${!treeState.hidden.has(k)}">${esc(labelOf[k])}</button>`).join("")}
+        <label class="check"><input type="checkbox" id="tree-carry" ${treeState.carry ? "checked" : ""}> Hiện mọi liên kết carry-over</label>
+        <span style="flex:1"></span>
+        <button type="button" class="ghost small" id="zoom-out" aria-label="Thu nhỏ">−</button>
+        <span class="muted" id="zoom-label">${Math.round(treeState.zoom * 100)}%</span>
+        <button type="button" class="ghost small" id="zoom-in" aria-label="Phóng to">+</button>
+        <button type="button" class="ghost small" id="zoom-fit">Vừa khung</button>
+      </div>
+      <div class="tree-layout">
+        <div class="tree-scroll" id="tree-scroll">${visible.length ? `<svg class="frs-tree" viewBox="0 0 ${W} ${H}" width="${Math.round(W * treeState.zoom)}" height="${Math.round(H * treeState.zoom)}" role="group" aria-label="Sơ đồ cây FRS">
+          ${titles.map((t) => `<text class="tree-title" x="${TREE.pad}" y="${t.y}">${esc(t.text)}</text>`).join("")}
+          ${edges}${carry}${nodes}</svg>` : '<div class="empty">Đã ẩn hết các nhánh.</div>'}</div>
+        <aside class="panel" id="tree-panel">${sel ? nodePanel(sel) : '<p class="muted">Bấm vào một FRS để xem chi tiết và sửa FRS cha.</p>'}</aside>
+      </div>
+      <p class="muted" style="margin-top:10px">Cha được suy từ mã FRS: minor &gt; 0 thì cha là minor − 1, minor = 0 thì cha là major − 1. Đường nét đứt là có FRS trung gian chưa có file.
+        Đường chấm cam là ghi chú carry-over từ nhánh khác (hiện khi chọn một FRS). Chấm cam ở góc là FRS có cảnh báo dữ liệu. ${d.manual_count ? d.manual_count + " quan hệ đã sửa tay." : ""}</p>`;
+
+    root.querySelectorAll("[data-key]").forEach((b) => (b.onclick = () => { treeState.hidden.has(b.dataset.key) ? treeState.hidden.delete(b.dataset.key) : treeState.hidden.add(b.dataset.key); draw(); }));
+    document.getElementById("tree-carry").onchange = (e) => { treeState.carry = e.target.checked; draw(); };
+    const zoom = (z) => { treeState.zoom = Math.min(2, Math.max(0.4, Math.round(z * 100) / 100)); draw(); };
+    document.getElementById("zoom-in").onclick = () => zoom(treeState.zoom + 0.2);
+    document.getElementById("zoom-out").onclick = () => zoom(treeState.zoom - 0.2);
+    document.getElementById("zoom-fit").onclick = () => zoom((document.getElementById("tree-scroll").clientWidth - 4) / W);
+    root.querySelectorAll("g.node").forEach((g) => {
+      const pick = () => { treeState.selected = g.dataset.code; draw(); const again = root.querySelector(`g.node[data-code="${CSS.escape(treeState.selected)}"]`); if (again) again.focus(); };
+      g.onclick = pick;
+      g.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } };
+    });
+    const form = document.getElementById("parent-form");
+    if (form) form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const v = form.parent.value;
+      try {
+        d = await api("/api/tree/parent", { project_id: id, code: sel.code, parent: v === "auto" ? "auto" : v === "" ? null : v });
+        showNotice(v === "auto" ? `FRS ${sel.code}: cha quay về quy tắc tự động.` : `Đã lưu FRS cha của ${sel.code}.`, "ok");
+        draw();
+      } catch (e) { showNotice(e.message, "error"); }
+    };
+  };
+
+  const nodePanel = (n) => {
+    const descendants = new Set();
+    const walk = (c) => { for (const k of d.nodes.find((x) => x.code === c).children) { descendants.add(k); walk(k); } };
+    walk(n.code);
+    const cur = n.source === "manual" ? (n.parent_code || "") : "auto";
+    const options = d.nodes.filter((x) => x.code !== n.code && !descendants.has(x.code))
+      .map((x) => `<option value="${esc(x.code)}" ${cur === x.code ? "selected" : ""}>FRS ${esc(x.code)}</option>`).join("");
+    return `<h2>FRS ${esc(n.code)} <span class="muted">${n.version == null ? "" : "V" + n.version} ${esc(n.side)}</span></h2>
+      <p>Line: ${chips(n.lines) || '<span class="muted">chưa gán</span>'}</p>
+      <p>Cha hiện tại: ${n.parent_code ? `<b>FRS ${esc(n.parent_code)}</b>` : "<b>không có (gốc cây)</b>"} <span class="chip">${n.source === "manual" ? "sửa tay" : "tự động"}</span></p>
+      ${n.skipped.length ? `<p class="muted">Chưa có file của FRS trung gian: ${esc(n.skipped.join(", "))}.</p>` : ""}
+      ${n.carry.length ? `<p>Ghi chú carry-over nhắc tới:</p><ul class="plain">${n.carry.map((h) => `<li>${h.id ? `<a href="#/frs/${h.id}">FRS ${esc(h.code)}</a>` : "FRS " + esc(h.code)} <span class="chip">${CARRY_TEXT[h.relation]}</span></li>`).join("")}</ul>` : ""}
+      <form id="parent-form"><label>Đổi FRS cha
+        <select name="parent"><option value="auto" ${cur === "auto" ? "selected" : ""}>Tự động theo mã FRS</option>
+          <option value="" ${n.source === "manual" && !n.parent_code ? "selected" : ""}>Không có cha (gốc cây)</option>${options}</select></label>
+        <div class="row-end" style="justify-content:flex-start"><button type="submit">Lưu</button></div></form>
+      <div class="row-end" style="justify-content:flex-start">
+        <a href="#/frs/${n.id}"><button type="button" class="ghost">Mở FRS</button></a>
+        ${n.parent_id ? `<a href="#/compare?a=${n.parent_id}&b=${n.id}"><button type="button" class="ghost">So sánh với cha</button></a>` : ""}</div>`;
+  };
+  draw();
 }
 
 // ---------- trang FRS ----------

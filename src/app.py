@@ -23,6 +23,7 @@ sys.path.insert(0, str(SRC))
 from _func import db  # noqa: E402
 from _func.scan import SKIP_DIR_PREFIXES, scan_database  # noqa: E402
 from feature import compare, compat_view, queries  # noqa: E402
+from feature import tree as frs_tree_view  # noqa: E402
 
 DEFAULT_PORT = 8010  # 8000 đã dùng cho Abbreviation Web
 ASSETS = SRC / "assets"
@@ -84,6 +85,27 @@ class App:
                 conn.close()
         finally:
             self.scan_lock.release()
+
+    def metadata(self) -> dict:
+        return frs_tree_view.load_metadata(self.root) if self.root else {"projects": {}}
+
+    def set_parent(self, project_id: int, code: str, parent) -> dict:
+        """Sửa tay quan hệ cha-con giữa hai FRS (FR-36); lưu vào metadata.json trong thư mục database."""
+        if self.root is None:
+            raise ApiError(400, "Chưa chọn thư mục database")
+        conn = self.conn()
+        try:
+            row = conn.execute("SELECT name FROM project WHERE id=?", (project_id,)).fetchone()
+            if row is None:
+                raise ApiError(404, "Không tìm thấy dự án")
+            codes = [r[0] for r in conn.execute("SELECT code FROM frs WHERE project_id=?", (project_id,))]
+            try:
+                frs_tree_view.set_manual_parent(self.root, row["name"], codes, code, parent)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            return frs_tree_view.project_tree(conn, project_id, self.metadata())
+        finally:
+            conn.close()
 
     @staticmethod
     def _check_name(name: str) -> str:
@@ -208,6 +230,12 @@ def make_handler(app: App):
                         if data is None:
                             raise ApiError(404, "Không tìm thấy dự án")
                         return self._json(data)
+                    m = re.fullmatch(r"/api/project/(\d+)/tree", path)
+                    if m:
+                        data = frs_tree_view.project_tree(conn, int(m.group(1)), app.metadata())
+                        if data is None:
+                            raise ApiError(404, "Không tìm thấy dự án")
+                        return self._json(data)
                     m = re.fullmatch(r"/api/frs/(\d+)", path)
                     if m:
                         data = queries.frs_detail(conn, int(m.group(1)))
@@ -232,7 +260,7 @@ def make_handler(app: App):
                             raise ApiError(404, "ECU này không có trong COM_BOM của FRS")
                         return self._json(data)
                     if path == "/api/frs-list":
-                        return self._json({"frs": compare.frs_list(conn)})
+                        return self._json({"frs": compare.frs_list(conn, app.metadata())})
                     if path == "/api/compare":
                         try:
                             a, b = int(qs.get("a", "")), int(qs.get("b", ""))
@@ -268,6 +296,11 @@ def make_handler(app: App):
                     return self._json(app.add_project(str(body.get("name", ""))))
                 if path == "/api/lines":
                     return self._json(app.add_line(int(body.get("project_id") or 0), str(body.get("parent_path", "")), str(body.get("name", ""))))
+                if path == "/api/tree/parent":
+                    parent = body.get("parent")
+                    if parent is not None and not isinstance(parent, str):
+                        raise ApiError(400, "Giá trị cha không hợp lệ")
+                    return self._json(app.set_parent(int(body.get("project_id") or 0), str(body.get("code", "")), parent))
                 raise ApiError(404, "Không tìm thấy")
             except ApiError as e:
                 self._json({"error": e.message}, e.status)

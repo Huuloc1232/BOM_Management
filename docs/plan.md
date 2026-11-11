@@ -115,7 +115,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - Truy vấn tương thích, ma trận HW x SW, cảnh báo cặp ngoài bảng (FR-28 đến FR-33).
 - Xong khi: AC-03 đạt qua giao diện.
 
-### Giai đoạn 6: Sơ đồ cây FRS
+### Giai đoạn 6: Sơ đồ cây FRS (HOÀN THÀNH, 72 test đạt)
 - Vẽ cây (SVG hoặc canvas thuần), nhiều nhánh, bật/tắt LHD/RHD, sửa cha-con tay, cảnh báo mâu thuẫn với FOTA (FR-34 đến FR-38).
 - Xong khi: AC-05 đạt qua giao diện.
 

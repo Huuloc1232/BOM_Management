@@ -153,6 +153,31 @@ class AppTest(unittest.TestCase):
         self.assertEqual(self.get(f"/api/frs/{fid}/compat-check?group=BMS&hw=x&sw=y")[0], 404)
         self.assertEqual(self.get("/api/frs/999/compat")[0], 404)
 
+    def test_tree_api_and_manual_parent(self):
+        _, s = self.get("/api/state")
+        pid = next(p["id"] for p in s["projects"] if p["name"] == "VF3")
+        status, t = self.get(f"/api/project/{pid}/tree")
+        self.assertEqual(status, 200)
+        n = {x["code"]: x for x in t["nodes"]}
+        self.assertEqual((n["3B.1.11.0"]["parent_code"], n["3B.1.11.0"]["source"]), ("3B.1.10.0", "auto"))
+        self.assertEqual([x["label"] for x in t["trees"]], ["3A.6 (RHD)", "3B.1 (LHD)"])
+        try:
+            status, t = self.post("/api/tree/parent", {"project_id": pid, "code": "3B.1.11.0", "parent": None})
+            self.assertEqual(status, 200)
+            self.assertEqual({x["code"]: x for x in t["nodes"]}["3B.1.11.0"]["source"], "manual")
+            self.assertEqual(len(t["trees"]), 3)
+            # so sánh mặc định theo cây đã sửa tay: 3B.1.11.0 giờ không còn cha
+            _, fl = self.get("/api/frs-list")
+            self.assertIsNone({f["code"]: f["parent_id"] for f in fl["frs"]}["3B.1.11.0"])
+            self.assertEqual(self.post("/api/tree/parent", {"project_id": pid, "code": "3B.1.10.0", "parent": "3B.1.10.0"})[0], 400)
+            self.assertEqual(self.post("/api/tree/parent", {"project_id": pid, "code": "3B.1.10.0", "parent": 5})[0], 400)
+            self.assertEqual(self.post("/api/tree/parent", {"project_id": 999, "code": "3B.1.10.0", "parent": None})[0], 404)
+        finally:
+            self.post("/api/tree/parent", {"project_id": pid, "code": "3B.1.11.0", "parent": "auto"})
+        _, t = self.get(f"/api/project/{pid}/tree")
+        self.assertEqual(t["manual_count"], 0)
+        self.assertEqual(self.get("/api/project/999/tree")[0], 404)
+
     def test_add_project_and_line(self):
         status, _ = self.post("/api/projects", {"name": "ECVan"})
         self.assertEqual(status, 200)
