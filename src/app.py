@@ -35,6 +35,7 @@ class App:
         self.db_path = Path(db_path) if db_path else db.default_db_path()
         self.settings_path = Path(settings_path) if settings_path else self.db_path.parent / "settings.json"
         self.scan_lock = threading.Lock()
+        self.allow_remote = False
         self.settings = self._load_settings()
         if root:
             self.settings["root"] = str(Path(root))
@@ -243,6 +244,8 @@ def make_handler(app: App):
 
         def _local_only(self):
             """Chặn trang web khác gọi API ghi (CSRF / DNS rebinding)."""
+            if app.allow_remote:   # chế độ preview/dev: chạy sau proxy nên Host và Origin không phải 127.0.0.1
+                return
             host = (self.headers.get("Host") or "").split(":")[0]
             if host not in ("127.0.0.1", "localhost"):
                 raise ApiError(403, "Chỉ chấp nhận truy cập từ máy này")
@@ -394,11 +397,11 @@ class _Server(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
 
 
-def bind_server(app: App, preferred: int, tries: int = 20) -> ThreadingHTTPServer:
+def bind_server(app: App, preferred: int, tries: int = 20, host: str = "127.0.0.1") -> ThreadingHTTPServer:
     """Mở server ở cổng ưu tiên, bận thì thử các cổng kế tiếp."""
     for port in range(preferred, preferred + tries):
         try:
-            return _Server(("127.0.0.1", port), make_handler(app))
+            return _Server((host, port), make_handler(app))
         except OSError:
             continue
     raise SystemExit(f"Không tìm được cổng trống trong khoảng {preferred}-{preferred + tries - 1}")
@@ -421,6 +424,8 @@ def main(argv=None) -> int:
     ap.add_argument("--db", help="File chỉ mục SQLite")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--open", action="store_true", help="Mở trình duyệt sau khi khởi động")
+    ap.add_argument("--allow-remote", action="store_true",
+                    help="CHỈ dùng để xem thử qua proxy/preview: nghe trên mọi địa chỉ và bỏ kiểm tra Host/Origin. Không dùng trên máy làm việc")
     args = ap.parse_args(argv)
 
     running = f"http://127.0.0.1:{args.port}/"
@@ -430,7 +435,10 @@ def main(argv=None) -> int:
             webbrowser.open(running)
         return 0
     app = App(db_path=args.db, root=args.root)
-    server = bind_server(app, args.port)
+    app.allow_remote = args.allow_remote
+    server = bind_server(app, args.port, host="0.0.0.0" if args.allow_remote else "127.0.0.1")
+    if args.allow_remote:
+        print("CẢNH BÁO: --allow-remote đang bật, server nhận kết nối từ máy khác và không kiểm tra Origin.")
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/"
     print(f"BOM Management đang chạy tại {url}  (Ctrl+C để dừng)")
