@@ -2,43 +2,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from _func.frs_tree import build_tree, sort_key
+from _func.metadata import load_metadata, manual_parents, metadata_path, save_metadata  # noqa: F401
 from _func.normalize import parse_frs_code
 
-META_DIR = "_bom_management"   # nằm trong thư mục database; scanner bỏ qua folder bắt đầu bằng '_'
-META_FILE = "metadata.json"
 SEG_LABELS = {1: "LHD", 6: "RHD"}  # D3; segment khác hiển thị số thô (D18)
 
 
-# ---------- metadata do người dùng nhập (đi cùng thư mục database) ----------
-
-def metadata_path(root) -> Path:
-    return Path(root) / META_DIR / META_FILE
-
-
-def load_metadata(root) -> dict:
-    try:
-        data = json.loads(metadata_path(root).read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            data.setdefault("projects", {})
-            return data
-    except (OSError, ValueError):
-        pass
-    return {"version": 1, "projects": {}}
-
-
-def save_metadata(root, data: dict) -> None:
-    path = metadata_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)  # ghi nguyên tử để OneDrive không sync file dở dang
-
-
-def manual_parents(meta: dict, project: str) -> dict:
-    return dict(meta.get("projects", {}).get(project, {}).get("frs_parent", {}))
+# metadata do người dùng nhập nằm ở _func/metadata.py (dùng chung với scanner)
 
 
 def set_manual_parent(root, project: str, known_codes: list[str], code: str, parent) -> dict:
@@ -46,7 +18,10 @@ def set_manual_parent(root, project: str, known_codes: list[str], code: str, par
     if code not in known_codes:
         raise ValueError(f"Không có FRS {code} trong dự án")
     meta = load_metadata(root)
-    table = meta["projects"].setdefault(project, {}).setdefault("frs_parent", {})
+    proj = meta["projects"].setdefault(project, {})
+    if not isinstance(proj.get("frs_parent"), dict):
+        proj["frs_parent"] = {}
+    table = proj["frs_parent"]
     if parent == "auto":
         table.pop(code, None)
     else:
@@ -131,8 +106,9 @@ def project_tree(conn, project_id: int, meta: dict | None = None) -> dict | None
     if project is None:
         return None
     rows = [dict(r) for r in conn.execute(
-        """SELECT f.id, f.code, f.family, f.seg, f.major, f.minor, f.version, f.side,
-                  (SELECT group_concat(l.path, ', ') FROM frs_line fl JOIN line l ON l.id=fl.line_id WHERE fl.frs_id=f.id) AS lines,
+        """SELECT f.id, f.code, f.family, f.seg, f.major, f.minor, f.version, f.side, f.manual,
+                  (SELECT group_concat(path, ', ') FROM (SELECT l.path FROM frs_line fl JOIN line l ON l.id=fl.line_id
+                    WHERE fl.frs_id=f.id ORDER BY l.path COLLATE NOCASE)) AS lines,
                   (SELECT COUNT(*) FROM quality_issue q WHERE q.file_id=f.file_id AND q.severity IN ('warning','error')) AS warning_count
              FROM frs f WHERE f.project_id=?""", (project_id,))]
     by_code = {r["code"]: r for r in rows}
@@ -172,7 +148,7 @@ def project_tree(conn, project_id: int, meta: dict | None = None) -> dict | None
                 rel = "other_branch"      # carry-across từ nhánh khác cùng dòng (bình thường, không phải lỗi)
             hints.append({"code": other, "id": by_code[other]["id"] if other in by_code else None, "relation": rel})
         nodes.append({
-            "id": r["id"], "code": code, "version": r["version"], "side": r["side"],
+            "id": r["id"], "code": code, "version": r["version"], "side": r["side"], "no_bom": bool(r["manual"]),
             "family": r["family"], "seg": r["seg"], "lines": r["lines"] or "", "warning_count": r["warning_count"],
             "parent_code": n["parent"] if n["parent"] in by_code else None,
             "parent_id": by_code[n["parent"]]["id"] if n["parent"] in by_code else None,

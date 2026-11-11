@@ -11,7 +11,7 @@ import openpyxl
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from _func import db  # noqa: E402
+from _func import db, metadata  # noqa: E402
 from _func.scan import filename_line_hint, infer_line, scan_database  # noqa: E402
 
 SAMPLE = ROOT / "docs" / "sample.xlsx"
@@ -143,15 +143,49 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(report["counts"]["frs"], 2)
 
     def test_manual_line_link_survives_reimport(self):
+        (self.root / "VF3" / "Pin LFP").mkdir()
         self.scan()
-        frs_id = self.conn.execute("SELECT id FROM frs WHERE code='3B.1.11.0'").fetchone()[0]
-        pid = self.conn.execute("SELECT id FROM project WHERE name='VF3'").fetchone()[0]
-        cur = self.conn.execute("INSERT INTO line(project_id, name, path, source) VALUES(?, 'Pin LFP', 'Pin LFP', 'manual')", (pid,))
-        self.conn.execute("INSERT INTO frs_line(frs_id, line_id, source) VALUES(?,?, 'manual')", (frs_id, cur.lastrowid))
-        self.conn.commit()
-        self.scan(force=True)
-        lines = sorted(r[0] for r in self.conn.execute("SELECT l.path FROM frs f JOIN frs_line fl ON fl.frs_id=f.id JOIN line l ON l.id=fl.line_id WHERE f.code='3B.1.11.0'"))
-        self.assertEqual(lines, ["FL", "Pin LFP"])  # D4: một FRS thuộc nhiều line
+        metadata.set_frs_lines(self.root, "VF3", "3B.1.11.0", ["Pin LFP", "Khong ton tai"])
+        report = self.scan(force=True)
+        lines = dict(self.conn.execute("SELECT l.path, fl.source FROM frs f JOIN frs_line fl ON fl.frs_id=f.id JOIN line l ON l.id=fl.line_id WHERE f.code='3B.1.11.0'").fetchall())
+        self.assertEqual(lines, {"FL": "auto", "Pin LFP": "manual"})  # D4: một FRS thuộc nhiều line
+        self.assertEqual(report["stale_lines"], [{"project": "VF3", "frs": "3B.1.11.0", "line": "Khong ton tai"}])
+        metadata.set_frs_lines(self.root, "VF3", "3B.1.11.0", [])
+        self.scan()
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT l.path FROM frs f JOIN frs_line fl ON fl.frs_id=f.id JOIN line l ON l.id=fl.line_id WHERE f.code='3B.1.11.0'")], ["FL"])
+
+    def test_manual_frs_placeholder_lifecycle(self):
+        self.scan()
+        code = metadata.add_manual_frs(self.root, "VF3", "frs 3b.1.12.0", ["FL"])
+        self.assertEqual(code, "3B.1.12.0")
+        self.scan()
+        row = self.conn.execute("SELECT manual, version, side, file_id FROM frs WHERE code='3B.1.12.0'").fetchone()
+        self.assertEqual(tuple(row), (1, None, "LHD", None))
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT l.path FROM frs f JOIN frs_line fl ON fl.frs_id=f.id JOIN line l ON l.id=fl.line_id WHERE f.code='3B.1.12.0'")], ["FL"])
+        self.scan(force=True)                       # quét lại không xóa FRS tạo tay
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM frs WHERE code='3B.1.12.0'").fetchone()[0], 1)
+        with self.assertRaisesRegex(ValueError, "đã được tạo tay"):
+            metadata.add_manual_frs(self.root, "VF3", "3B.1.12.0", [])
+        for bad in ("", "abc", "3B.1.12", "3B.1.12.0.1", "3B.1.12.0 V2"):
+            with self.assertRaises(ValueError, msg=bad):
+                metadata.add_manual_frs(self.root, "VF3", bad, [])
+        # có file thật cho mã đó: FRS thật thay thế, là FRS "mới", vẫn giữ line gán tay
+        make_variant(self.root / "VF3" / "Legacy" / "RHD" / "FRS3B.1.12.0.xlsx", "3B.1.12.0", 1)
+        vf3 = self.project(self.scan(), "VF3")
+        self.assertEqual([(i["frs"], i["action"]) for i in vf3["imported"]], [("3B.1.12.0", "new")])
+        row = self.conn.execute("SELECT manual, version FROM frs WHERE code='3B.1.12.0'").fetchone()
+        self.assertEqual(tuple(row), (0, 1))
+        lines = dict(self.conn.execute("SELECT l.path, fl.source FROM frs f JOIN frs_line fl ON fl.frs_id=f.id JOIN line l ON l.id=fl.line_id WHERE f.code='3B.1.12.0'").fetchall())
+        self.assertEqual(lines, {"FL": "manual", "Legacy/RHD": "auto"})
+        # xóa file: quay lại là FRS tạo tay; xóa khỏi metadata: biến mất
+        (self.root / "VF3" / "Legacy" / "RHD" / "FRS3B.1.12.0.xlsx").unlink()
+        self.scan()
+        self.assertEqual(self.conn.execute("SELECT manual FROM frs WHERE code='3B.1.12.0'").fetchone()[0], 1)
+        metadata.remove_manual_frs(self.root, "VF3", "3B.1.12.0")
+        self.scan()
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM frs WHERE code='3B.1.12.0'").fetchone()[0], 0)
+        with self.assertRaisesRegex(ValueError, "không phải FRS tạo tay"):
+            metadata.remove_manual_frs(self.root, "VF3", "3B.1.11.0")
 
     def test_same_frs_in_two_line_folders_links_both_lines(self):
         self.scan()

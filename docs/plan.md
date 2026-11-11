@@ -119,7 +119,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - Vẽ cây (SVG hoặc canvas thuần), nhiều nhánh, bật/tắt LHD/RHD, sửa cha-con tay, cảnh báo mâu thuẫn với FOTA (FR-34 đến FR-38).
 - Xong khi: AC-05 đạt qua giao diện.
 
-### Giai đoạn 7: Hoàn thiện
+### Giai đoạn 7: Hoàn thiện (XONG phần tạo FRS tay, gán nhiều line, hướng dẫn sử dụng; 74 test đạt. CHƯA LÀM: nối `startup_loader`, đăng ký `POWER_TOOLS`, hook BOM_autofill_dev, vì cần đọc các file đó trên máy người dùng)
 - Tạo FRS tay (FR-07), gán FRS vào nhiều line (FR-05).
 - Hướng dẫn sử dụng, đăng ký `POWER_TOOLS`, hook cho BOM_autofill_dev (NFR-08).
 

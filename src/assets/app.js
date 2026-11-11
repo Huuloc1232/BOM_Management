@@ -139,9 +139,9 @@ async function renderProject(id, params) {
       <td>${f.version == null ? "" : "V" + f.version}</td>
       <td>${esc(f.side)}</td>
       <td>${chips(f.lines) || '<span class="muted">chưa gán</span>'}</td>
-      <td>${f.ecu_count} ECU / ${f.block_count} block</td>
-      <td>${f.warning_count ? `<span class="chip warn">${f.warning_count} cảnh báo</span>` : '<span class="chip ok">OK</span>'}</td>
-      <td class="mono muted">${esc(f.file)}</td></tr>`).join("");
+      <td>${f.manual ? "" : `${f.ecu_count} ECU / ${f.block_count} block`}</td>
+      <td>${f.manual ? '<span class="chip">chưa có BOM</span>' : f.warning_count ? `<span class="chip warn">${f.warning_count} cảnh báo</span>` : '<span class="chip ok">OK</span>'}</td>
+      <td class="mono muted">${f.manual ? `<button type="button" class="ghost small" data-remove="${esc(f.code)}">Xóa FRS tạo tay</button>` : esc(f.file)}</td></tr>`).join("");
   const others = d.other_files.map((f) => `<tr><td class="mono">${esc(f.rel_path)}</td>
       <td><span class="chip ${f.status === "error" ? "err" : ""}">${esc({ ok: "bỏ qua", not_bom: "không phải BOM", error: "lỗi" }[f.status] || f.status)}</span></td>
       <td>${esc(f.note)}</td></tr>`).join("");
@@ -164,10 +164,31 @@ async function renderProject(id, params) {
           <thead><tr><th>FRS</th><th>TPV</th><th>Tay lái</th><th>Line</th><th>ECU</th><th>Dữ liệu</th><th>File</th></tr></thead>
           <tbody>${rows || `<tr><td colspan="7" class="empty">Chưa có FRS${line ? " trong line này" : ""}. Đặt file <span class="mono">FRS&lt;mã&gt;.xlsx</span> vào folder rồi quét lại.</td></tr>`}</tbody>
         </table></div>
+        <form class="toolbar" id="add-frs" style="margin-top:12px">
+          <input type="search" name="code" required placeholder="Mã FRS mới, vd 3B.1.12.0" aria-label="Mã FRS mới">
+          <button type="submit" class="ghost">Tạo FRS chưa có file${line ? " trong line " + esc(line.path) : ""}</button>
+          <span class="muted">Khi có file, đặt <span class="mono">FRS&lt;mã&gt;.xlsx</span> vào folder line rồi quét lại.</span>
+        </form>
         ${others ? `<section><h2>File không được dùng</h2><div class="table-wrap"><table>
           <thead><tr><th>File</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead><tbody>${others}</tbody></table></div></section>` : ""}
       </div>
     </div>`;
+  document.getElementById("add-frs").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/frs/create", { project_id: id, code: ev.target.code.value, lines: line ? [line.path] : [] });
+      showNotice(`Đã tạo FRS ${ev.target.code.value.trim().toUpperCase().replace(/^FRS\s*/, "")} (chưa có BOM).`, "ok");
+      renderProject(id, params);
+    } catch (e) { showNotice(e.message, "error"); }
+  };
+  view.querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Xóa FRS tạo tay ${b.dataset.remove}?`)) return;
+    try {
+      await api("/api/frs/remove", { project_id: id, code: b.dataset.remove });
+      showNotice(`Đã xóa FRS ${b.dataset.remove}.`, "ok");
+      renderProject(id, params);
+    } catch (e) { showNotice(e.message, "error"); }
+  }));
   document.getElementById("add-line").onsubmit = async (ev) => {
     ev.preventDefault();
     try {
@@ -227,8 +248,8 @@ async function renderProjectTree(id, params) {
     })).join("");
     const nodes = shown.map((n) => {
       const p = at[n.code];
-      const cls = ["node", n.source === "manual" ? "manual" : "", treeState.selected === n.code ? "selected" : ""].join(" ");
-      const sub = [n.version == null ? "" : "V" + n.version, n.side, n.lines].filter(Boolean).join(" · ");
+      const cls = ["node", n.source === "manual" ? "manual" : "", n.no_bom ? "ghost" : "", treeState.selected === n.code ? "selected" : ""].join(" ");
+      const sub = n.no_bom ? "chưa có BOM" : [n.version == null ? "" : "V" + n.version, n.side, n.lines].filter(Boolean).join(" · ");
       return `<g class="${cls}" data-code="${esc(n.code)}" tabindex="0" role="button" aria-label="FRS ${esc(n.code)}${n.parent_code ? ", cha " + esc(n.parent_code) : ", gốc cây"}" transform="translate(${p.x},${p.y})">
         <rect width="${TREE.nw}" height="${TREE.nh}" rx="7"/>
         <text class="t1" x="10" y="20">FRS ${esc(n.code)}</text><text class="t2" x="10" y="38">${esc(sub.length > 24 ? sub.slice(0, 23) + "…" : sub)}</text>
@@ -297,7 +318,7 @@ async function renderProjectTree(id, params) {
         <div class="row-end" style="justify-content:flex-start"><button type="submit">Lưu</button></div></form>
       <div class="row-end" style="justify-content:flex-start">
         <a href="#/frs/${n.id}"><button type="button" class="ghost">Mở FRS</button></a>
-        ${n.parent_id ? `<a href="#/compare?a=${n.parent_id}&b=${n.id}"><button type="button" class="ghost">So sánh với cha</button></a>` : ""}</div>`;
+        ${n.parent_id && !n.no_bom && !d.nodes.find((x) => x.id === n.parent_id).no_bom ? `<a href="#/compare?a=${n.parent_id}&b=${n.id}"><button type="button" class="ghost">So sánh với cha</button></a>` : ""}</div>`;
   };
   draw();
 }
@@ -333,12 +354,33 @@ async function renderFrs(id, params) {
     <div class="crumbs"><a href="#/">Dự án</a> / <a href="#/project/${projectId}">${esc(f.project)}</a> / FRS ${esc(f.code)}</div>
     <div class="head">
       <div><h1>FRS ${esc(f.code)} <span class="muted">${f.version == null ? "" : "V" + f.version} ${esc(f.side)}</span></h1>
-        <div class="muted">Line: ${chips(f.lines) || "chưa gán"} · File: <span class="mono">${esc(f.file)}</span></div></div>
-      <a href="#/compare?b=${id}"><button type="button" class="ghost">So sánh với FRS khác</button></a>
+        <div class="muted" id="line-editor"></div>
+        <div class="muted">File: ${f.manual ? "chưa có" : `<span class="mono">${esc(f.file)}</span>`}</div></div>
+      ${f.manual ? "" : `<a href="#/compare?b=${id}"><button type="button" class="ghost">So sánh với FRS khác</button></a>`}
     </div>
+    ${f.manual ? `<div class="notice" style="margin:0 0 4px">FRS này được tạo tay và chưa có file BOM. Đặt file <span class="mono">FRS${esc(f.code)}.xlsx</span> vào folder line của dự án rồi bấm "Quét lại" để nạp dữ liệu.</div>` : ""}
     <div class="tabs" role="tablist">${tabs.map(([k, label]) => `<button type="button" role="tab" data-tab="${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">${esc(label)}</button>`).join("")}</div>
     <div id="tab-body"></div>`;
   view.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { location.hash = `#/frs/${id}?tab=${b.dataset.tab}`; }));
+  // Line của FRS: line suy từ folder thì cố định, line gán tay thì thêm bớt được (một FRS thuộc nhiều line)
+  const drawLines = (links) => {
+    const box = document.getElementById("line-editor");
+    const have = new Set(links.map((l) => l.path));
+    const rest = d.project_lines.filter((p) => !have.has(p));
+    box.innerHTML = `Line: ${links.map((l) => l.source === "manual"
+      ? `<span class="chip">${esc(l.path)} <button type="button" class="chip-x" data-unlink="${esc(l.path)}" aria-label="Bỏ gán line ${esc(l.path)}">×</button></span>`
+      : `<span class="chip" title="Suy từ folder chứa file">${esc(l.path)}</span>`).join("") || "chưa gán "}
+      ${rest.length ? `<select id="line-add" aria-label="Gán thêm line"><option value="">+ gán thêm line</option>${rest.map((p) => `<option>${esc(p)}</option>`).join("")}</select>` : ""}`;
+    const save = async (paths) => {
+      try { const r = await api("/api/frs/lines", { frs_id: id, lines: paths }); drawLines(r.line_links); showNotice("Đã cập nhật line của FRS.", "ok"); }
+      catch (e) { showNotice(e.message, "error"); }
+    };
+    const manual = links.filter((l) => l.source === "manual").map((l) => l.path);
+    box.querySelectorAll("[data-unlink]").forEach((b) => (b.onclick = () => save(manual.filter((p) => p !== b.dataset.unlink))));
+    const add = document.getElementById("line-add");
+    if (add) add.onchange = () => add.value && save([...manual, add.value]);
+  };
+  drawLines(d.line_links);
   const body = document.getElementById("tab-body");
 
   const drawBom = () => {

@@ -10,7 +10,8 @@ MAX_ROWS = 300
 
 _VARIANTS = """(SELECT group_concat(v.label, ', ') FROM block_variant bv JOIN variant v ON v.id=bv.variant_id
                  WHERE bv.block_id=b.id AND bv.applicable=1)"""
-_LINES = """(SELECT group_concat(l.path, ', ') FROM frs_line fl JOIN line l ON l.id=fl.line_id WHERE fl.frs_id=f.id)"""
+_LINES = """(SELECT group_concat(path, ', ') FROM (SELECT l.path FROM frs_line fl JOIN line l ON l.id=fl.line_id
+               WHERE fl.frs_id=f.id ORDER BY l.path COLLATE NOCASE))"""
 
 
 def _rows(cur) -> list[dict]:
@@ -43,7 +44,7 @@ def project_detail(conn, project_id: int) -> dict | None:
                   (SELECT COUNT(*) FROM frs_line fl WHERE fl.line_id=l.id) AS frs_count
              FROM line l WHERE l.project_id=? ORDER BY l.path COLLATE NOCASE""", (project_id,)))
     frs = _rows(conn.execute(
-        f"""SELECT f.id, f.code, f.family, f.seg, f.major, f.minor, f.version, f.side, fi.rel_path AS file,
+        f"""SELECT f.id, f.code, f.family, f.seg, f.major, f.minor, f.version, f.side, f.manual, fi.rel_path AS file,
                    {_LINES} AS lines,
                    (SELECT group_concat(fl.line_id) FROM frs_line fl WHERE fl.frs_id=f.id) AS line_ids,
                    (SELECT COUNT(DISTINCT ecu) FROM ecu_block b WHERE b.frs_id=f.id) AS ecu_count,
@@ -64,6 +65,9 @@ def frs_detail(conn, frs_id: int) -> dict | None:
               FROM frs f JOIN project p ON p.id=f.project_id LEFT JOIN file fi ON fi.id=f.file_id WHERE f.id=?""", (frs_id,)).fetchone()
     if frs is None:
         return None
+    line_links = _rows(conn.execute(
+        "SELECT l.id, l.path, fl.source FROM frs_line fl JOIN line l ON l.id=fl.line_id WHERE fl.frs_id=? ORDER BY l.path COLLATE NOCASE", (frs_id,)))
+    all_lines = [r[0] for r in conn.execute("SELECT path FROM line WHERE project_id=? ORDER BY path COLLATE NOCASE", (frs["project_id"],))]
     variants = _rows(conn.execute("SELECT id, idx, label, market FROM variant WHERE frs_id=? ORDER BY idx", (frs_id,)))
     blocks = _rows(conn.execute(
         "SELECT id, idx, ecu, ecu_raw, label, purchase_pn, purchase_pn_base, first_row, last_row, compat_status, compat_reason FROM ecu_block WHERE frs_id=? ORDER BY idx", (frs_id,)))
@@ -84,7 +88,8 @@ def frs_detail(conn, frs_id: int) -> dict | None:
     for c in changes:
         c["tickets"] = tickets.get(c["id"], [])
     issues = _rows(conn.execute("SELECT severity, kind, sheet, cell, message, raw FROM quality_issue WHERE file_id=? ORDER BY CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, id", (frs["file_id"],))) if frs["file_id"] else []
-    return {"frs": dict(frs), "variants": variants, "blocks": blocks, "com_bom": com_bom, "changes": changes, "issues": issues}
+    return {"frs": dict(frs), "variants": variants, "blocks": blocks, "com_bom": com_bom, "changes": changes, "issues": issues,
+            "line_links": line_links, "project_lines": all_lines}
 
 
 def _filters(args: dict) -> tuple[str, dict]:

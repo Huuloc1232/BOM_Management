@@ -19,7 +19,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     __package__ = "_func"
 
-from . import db
+from . import db, metadata
 from .normalize import FRS_CODE_RE, norm_text
 from .parse_file import parse_file
 from .xlsx_util import issue
@@ -186,6 +186,8 @@ def scan_project(conn, project_dir: Path, name: str | None = None, force: bool =
             _link_lines(conn, project_id, current["id"], group, winner, name)
             continue  # không đổi
         parsed = parsed_cache.get(winner["id"]) or parse_file(project_dir / winner["rel_path"])
+        if current is not None and current["manual"]:
+            current = None  # FRS tạo tay vừa có file thật: coi như FRS mới (store_frs vẫn giữ line gán tay)
         old_parts = db.part_set(conn, current["id"]) if current is not None else None
         old_file = None
         if current is not None and current["file_id"] is not None:
@@ -203,7 +205,7 @@ def scan_project(conn, project_dir: Path, name: str | None = None, force: bool =
         report["imported"].append({"frs": code, "version": parsed["version"], "file": winner["rel_path"], "action": action, "line": "/".join(segments), "diff": diff})
 
     # FRS không còn file nào
-    for row in conn.execute("SELECT id, code, version FROM frs WHERE project_id=?", (project_id,)).fetchall():
+    for row in conn.execute("SELECT id, code, version FROM frs WHERE project_id=? AND manual=0", (project_id,)).fetchall():
         if row["code"] not in groups:
             db.delete_frs(conn, row["id"])
             conn.execute("INSERT INTO import_log(at, project, frs_code, action, old_version) VALUES(?,?,?, 'removed', ?)", (now, name, row["code"], row["version"]))
@@ -245,10 +247,11 @@ def scan_database(conn, root, force: bool = False, progress=None, single_project
             if row["name"] not in names:  # folder dự án đã bị xóa
                 conn.execute("DELETE FROM project WHERE id=?", (row["id"],))
         conn.commit()
+    synced = metadata.sync(conn, root)  # FRS tạo tay và line gán tay (metadata.json)
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('last_scan', ?)", (_now(),))
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('last_root', ?)", (str(root),))
     conn.commit()
-    return {"root": str(root), "seconds": round(time.time() - started, 2), "projects": reports, "counts": db.counts(conn)}
+    return {"root": str(root), "seconds": round(time.time() - started, 2), "projects": reports, "counts": db.counts(conn), "stale_lines": synced["stale_lines"]}
 
 
 def format_report(report: dict) -> str:

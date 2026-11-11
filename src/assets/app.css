@@ -129,3 +129,7 @@ ul.plain { list-style: none; padding: 0; margin: 0 0 10px; }
 ul.plain li { margin: 4px 0; }
 #tree-panel label { display: block; font-weight: 600; margin: 10px 0 0; }
 #tree-panel select { margin-top: 4px; font-weight: 400; }
+svg.frs-tree .node.ghost rect { fill: none; stroke-dasharray: 3 3; }
+svg.frs-tree .node.ghost .t1 { fill: var(--muted); }
+.chip-x { border: 0; background: transparent; color: inherit; padding: 0 0 0 2px; font-size: 14px; line-height: 1; cursor: pointer; border-radius: 3px; }
+#line-editor select { width: auto; padding: 2px 6px; font-size: 12px; }

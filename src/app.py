@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlparse
 SRC = Path(__file__).resolve().parent
 sys.path.insert(0, str(SRC))
 
-from _func import db  # noqa: E402
+from _func import db, metadata  # noqa: E402
 from _func.scan import SKIP_DIR_PREFIXES, scan_database  # noqa: E402
 from feature import compare, compat_view, queries  # noqa: E402
 from feature import tree as frs_tree_view  # noqa: E402
@@ -104,6 +104,75 @@ class App:
             except ValueError as e:
                 raise ApiError(400, str(e))
             return frs_tree_view.project_tree(conn, project_id, self.metadata())
+        finally:
+            conn.close()
+
+    # ----- FRS tạo tay và gán line (metadata.json) -----
+    def _project(self, conn, project_id: int):
+        row = conn.execute("SELECT id, name FROM project WHERE id=?", (project_id,)).fetchone()
+        if row is None:
+            raise ApiError(404, "Không tìm thấy dự án")
+        return row
+
+    def _check_lines(self, conn, project_id: int, lines) -> list[str]:
+        if not isinstance(lines, list) or not all(isinstance(x, str) for x in lines):
+            raise ApiError(400, "Danh sách line không hợp lệ")
+        known = {r[0] for r in conn.execute("SELECT path FROM line WHERE project_id=?", (project_id,))}
+        for path in lines:
+            if path not in known:
+                raise ApiError(400, f"Không có line '{path}' trong dự án")
+        return lines
+
+    def create_frs(self, project_id: int, code: str, lines) -> dict:
+        """Tạo FRS chưa có file BOM (FR-07)."""
+        if self.root is None:
+            raise ApiError(400, "Chưa chọn thư mục database")
+        conn = self.conn()
+        try:
+            project = self._project(conn, project_id)
+            lines = self._check_lines(conn, project_id, lines or [])
+            try:
+                code = metadata.normalize_code(code)
+                if conn.execute("SELECT 1 FROM frs WHERE project_id=? AND code=?", (project_id, code)).fetchone():
+                    raise ValueError(f"Dự án đã có FRS {code}")
+                metadata.add_manual_frs(self.root, project["name"], code, lines)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            metadata.sync(conn, self.root)
+            return queries.project_detail(conn, project_id)
+        finally:
+            conn.close()
+
+    def remove_frs(self, project_id: int, code: str) -> dict:
+        """Xóa một FRS tạo tay. FRS có file thì không xóa được ở đây (xóa file Excel rồi quét lại)."""
+        if self.root is None:
+            raise ApiError(400, "Chưa chọn thư mục database")
+        conn = self.conn()
+        try:
+            project = self._project(conn, project_id)
+            try:
+                metadata.remove_manual_frs(self.root, project["name"], code)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            metadata.sync(conn, self.root)
+            return queries.project_detail(conn, project_id)
+        finally:
+            conn.close()
+
+    def set_frs_lines(self, frs_id: int, lines) -> dict:
+        """Gán FRS vào thêm các line (FR-05). Line suy từ folder không đổi được ở đây."""
+        if self.root is None:
+            raise ApiError(400, "Chưa chọn thư mục database")
+        conn = self.conn()
+        try:
+            row = conn.execute("SELECT f.code, f.project_id, p.name FROM frs f JOIN project p ON p.id=f.project_id WHERE f.id=?", (frs_id,)).fetchone()
+            if row is None:
+                raise ApiError(404, "Không tìm thấy FRS")
+            lines = self._check_lines(conn, row["project_id"], lines or [])
+            auto = {r[0] for r in conn.execute("SELECT l.path FROM frs_line fl JOIN line l ON l.id=fl.line_id WHERE fl.frs_id=? AND fl.source='auto'", (frs_id,))}
+            metadata.set_frs_lines(self.root, row["name"], row["code"], [p for p in lines if p not in auto])
+            metadata.sync(conn, self.root)
+            return queries.frs_detail(conn, frs_id)
         finally:
             conn.close()
 
@@ -296,6 +365,12 @@ def make_handler(app: App):
                     return self._json(app.add_project(str(body.get("name", ""))))
                 if path == "/api/lines":
                     return self._json(app.add_line(int(body.get("project_id") or 0), str(body.get("parent_path", "")), str(body.get("name", ""))))
+                if path == "/api/frs/create":
+                    return self._json(app.create_frs(int(body.get("project_id") or 0), str(body.get("code", "")), body.get("lines")))
+                if path == "/api/frs/remove":
+                    return self._json(app.remove_frs(int(body.get("project_id") or 0), str(body.get("code", ""))))
+                if path == "/api/frs/lines":
+                    return self._json(app.set_frs_lines(int(body.get("frs_id") or 0), body.get("lines")))
                 if path == "/api/tree/parent":
                     parent = body.get("parent")
                     if parent is not None and not isinstance(parent, str):

@@ -125,7 +125,8 @@ def frs_list(conn, meta: dict | None = None) -> list[dict]:
     """Danh sách FRS cho ô chọn so sánh, kèm FRS cha theo cây (mặc định để so sánh)."""
     rows = [dict(r) for r in conn.execute(
         """SELECT f.id, f.project_id, p.name AS project, f.code, f.version, f.side
-             FROM frs f JOIN project p ON p.id=f.project_id ORDER BY p.name COLLATE NOCASE, f.family, f.seg, f.major, f.minor""")]
+             FROM frs f JOIN project p ON p.id=f.project_id WHERE f.manual=0
+            ORDER BY p.name COLLATE NOCASE, f.family, f.seg, f.major, f.minor""")]
     by_project: dict[int, list[dict]] = {}
     for r in rows:
         by_project.setdefault(r["project_id"], []).append(r)

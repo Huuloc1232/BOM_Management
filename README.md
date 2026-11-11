@@ -2,7 +2,7 @@
 
 Web tool local để truy xuất nhanh HW/SW BOM theo FRS. Tài liệu: `docs/requirements.md`, `docs/plan.md`.
 
-Trạng thái: Giai đoạn 1 đến 6 xong (parser, quét thư mục, chỉ mục SQLite, web tool tra cứu, so sánh hai FRS, tra cứu ticket, ma trận COM_BOM, sơ đồ cây FRS). Còn lại Giai đoạn 7: tạo FRS tay, gán FRS vào nhiều line trong giao diện, nối `startup_loader`.
+Trạng thái: 7 giai đoạn trong `docs/plan.md` đã xong, trừ ba việc cần file trên máy người dùng: nối `startup_loader`, đăng ký `POWER_TOOLS`, hook BOM_autofill_dev. Hướng dẫn dùng: `docs/huong-dan-su-dung.md`.
 
 ## Chạy web tool
 
@@ -21,6 +21,7 @@ Lần đầu, bấm "Thư mục database" và dán đường dẫn thư mục ch
 - "Sơ đồ cây FRS" ở trang dự án: nhánh chính đi ngang, nhánh phụ rẽ xuống; bật tắt từng nhánh (LHD, RHD...), zoom, bấm một FRS để xem ghi chú carry-over và đổi FRS cha. Quan hệ sửa tay lưu ở `<thư mục database>/_bom_management/metadata.json` nên không mất khi quét lại hay xóa chỉ mục.
 - Tab "COM_BOM" ở trang FRS: ma trận HW x SW cho từng ECU, câu trả lời "SW đang dùng có tương thích HW cũ không", ô kiểm tra một cặp HW + SW, và cảnh báo khi cặp trong BOM không có trong COM_BOM.
 - Tab "Ticket" ở trang FRS liệt kê mọi CCB/Jira mà FRS đã release, lọc theo loại, TPV, nội dung.
+- "Tạo FRS chưa có file" ở trang dự án và "+ gán thêm line" ở trang FRS (một FRS thuộc nhiều line). Hai thứ này lưu trong `metadata.json`.
 - "Thêm dự án" và "Thêm line" tạo folder tương ứng trong thư mục database. Tool không bao giờ sửa file Excel.
 - Server chỉ lắng nghe `127.0.0.1`. Cổng 8010 bận thì dùng cổng kế tiếp.
 
@@ -82,6 +83,7 @@ python -m unittest discover -s tests
 - `src/_func/frs_tree.py`: cây cha-con giữa các FRS
 - `src/_func/parse_file.py`: gộp kết quả một file, có CLI
 - `src/_func/db.py`: schema và truy vấn chỉ mục SQLite
+- `src/_func/metadata.py`: metadata người dùng nhập (FRS tạo tay, line gán tay, cha-con sửa tay)
 - `src/_func/scan.py`: quét thư mục, chọn TPV cuối, quét gia tăng, có CLI
 - `src/feature/queries.py`: truy vấn cho giao diện (dashboard, FRS, tìm kiếm)
 - `src/feature/compare.py`: so sánh hai FRS, danh sách ticket của FRS

@@ -9,7 +9,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS frs(
     version INTEGER, side TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
     file_id INTEGER REFERENCES file(id) ON DELETE SET NULL,
     imported_at TEXT NOT NULL,
+    manual INTEGER NOT NULL DEFAULT 0,   -- 1 = FRS tạo tay, chưa có file BOM (FR-07)
     UNIQUE(project_id, code));
 
 CREATE TABLE IF NOT EXISTS frs_line(

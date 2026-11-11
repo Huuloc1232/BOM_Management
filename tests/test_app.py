@@ -178,6 +178,47 @@ class AppTest(unittest.TestCase):
         self.assertEqual(t["manual_count"], 0)
         self.assertEqual(self.get("/api/project/999/tree")[0], 404)
 
+    def test_manual_frs_and_line_assignment_api(self):
+        _, s = self.get("/api/state")
+        pid = next(p["id"] for p in s["projects"] if p["name"] == "VF3")
+        try:
+            status, p = self.post("/api/frs/create", {"project_id": pid, "code": " frs 3b.1.12.0 ", "lines": ["FL"]})
+            self.assertEqual(status, 200)
+            new = next(f for f in p["frs"] if f["code"] == "3B.1.12.0")
+            self.assertEqual((new["manual"], new["file"], new["lines"], new["block_count"]), (1, None, "FL", 0))
+            self.assertEqual(self.post("/api/frs/create", {"project_id": pid, "code": "3B.1.12.0", "lines": []})[0], 400)   # trùng
+            self.assertEqual(self.post("/api/frs/create", {"project_id": pid, "code": "3B.1.11.0", "lines": []})[0], 400)   # đã có file
+            self.assertEqual(self.post("/api/frs/create", {"project_id": pid, "code": "xyz", "lines": []})[0], 400)
+            self.assertEqual(self.post("/api/frs/create", {"project_id": pid, "code": "3B.1.13.0", "lines": ["KhongCo"]})[0], 400)
+            self.assertEqual(self.post("/api/frs/create", {"project_id": 999, "code": "3B.1.13.0", "lines": []})[0], 404)
+            # trang FRS tạo tay mở được, nằm trong cây, không nằm trong danh sách so sánh
+            status, d = self.get(f"/api/frs/{new['id']}")
+            self.assertEqual((status, d["frs"]["manual"], d["blocks"]), (200, 1, []))
+            _, t = self.get(f"/api/project/{pid}/tree")
+            node = {x["code"]: x for x in t["nodes"]}["3B.1.12.0"]
+            self.assertEqual((node["no_bom"], node["parent_code"]), (True, "3B.1.11.0"))
+            _, fl = self.get("/api/frs-list")
+            self.assertNotIn("3B.1.12.0", [f["code"] for f in fl["frs"]])
+            self.assertEqual(self.get("/api/search?q=3B.1.12")[1]["frs"][0]["code"], "3B.1.12.0")
+            # gán FRS có file vào thêm line; line tự động (FL) không bị ghi vào metadata
+            fid = self.frs_id("3B.1.11.0")
+            status, d = self.post("/api/frs/lines", {"frs_id": fid, "lines": ["FL", "Legacy/RHD"]})
+            self.assertEqual(status, 200)
+            self.assertEqual([(x["path"], x["source"]) for x in d["line_links"]], [("FL", "auto"), ("Legacy/RHD", "manual")])
+            self.assertEqual(self.post("/api/frs/lines", {"frs_id": fid, "lines": ["KhongCo"]})[0], 400)
+            self.assertEqual(self.post("/api/frs/lines", {"frs_id": fid, "lines": "FL"})[0], 400)
+            self.assertEqual(self.post("/api/frs/lines", {"frs_id": 99999, "lines": []})[0], 404)
+            self.post("/api/scan", {"force": True})   # quét lại vẫn còn
+            _, d = self.get(f"/api/frs/{self.frs_id('3B.1.11.0')}")
+            self.assertEqual(d["frs"]["lines"], "FL, Legacy/RHD")
+            self.assertEqual(self.post("/api/frs/remove", {"project_id": pid, "code": "3B.1.11.0"})[0], 400)   # FRS có file không xóa được
+        finally:
+            self.post("/api/frs/lines", {"frs_id": self.frs_id("3B.1.11.0"), "lines": []})
+            status, p = self.post("/api/frs/remove", {"project_id": pid, "code": "3B.1.12.0"})
+        self.assertEqual(status, 200)
+        self.assertNotIn("3B.1.12.0", [f["code"] for f in p["frs"]])
+        self.assertEqual(self.get(f"/api/frs/{self.frs_id('3B.1.11.0')}")[1]["frs"]["lines"], "FL")
+
     def test_add_project_and_line(self):
         status, _ = self.post("/api/projects", {"name": "ECVan"})
         self.assertEqual(status, 200)
