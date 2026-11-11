@@ -111,7 +111,7 @@ Một ô nhập, phân loại đầu vào (mã FRS, PN, ticket, tên ECU) rồi 
 - So sánh hai FRS theo ECU part number (FR-27).
 - Xong khi: AC-04, AC-07.
 
-### Giai đoạn 5: COM_BOM
+### Giai đoạn 5: COM_BOM (HOÀN THÀNH, 62 test đạt)
 - Truy vấn tương thích, ma trận HW x SW, cảnh báo cặp ngoài bảng (FR-28 đến FR-33).
 - Xong khi: AC-03 đạt qua giao diện.
 

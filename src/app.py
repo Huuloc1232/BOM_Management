@@ -22,7 +22,7 @@ sys.path.insert(0, str(SRC))
 
 from _func import db  # noqa: E402
 from _func.scan import SKIP_DIR_PREFIXES, scan_database  # noqa: E402
-from feature import compare, queries  # noqa: E402
+from feature import compare, compat_view, queries  # noqa: E402
 
 DEFAULT_PORT = 8010  # 8000 đã dùng cho Abbreviation Web
 ASSETS = SRC / "assets"
@@ -217,6 +217,20 @@ def make_handler(app: App):
                     m = re.fullmatch(r"/api/frs/(\d+)/tickets", path)
                     if m:
                         return self._json({"tickets": compare.frs_tickets(conn, int(m.group(1)))})
+                    m = re.fullmatch(r"/api/frs/(\d+)/compat", path)
+                    if m:
+                        data = compat_view.compat_view(conn, int(m.group(1)))
+                        if data is None:
+                            raise ApiError(404, "Không tìm thấy FRS")
+                        return self._json(data)
+                    m = re.fullmatch(r"/api/frs/(\d+)/compat-check", path)
+                    if m:
+                        if not qs.get("hw") or not qs.get("sw"):
+                            raise ApiError(400, "Cần nhập cả HW PN và SW PN")
+                        data = compat_view.check_pair(conn, int(m.group(1)), qs.get("group", ""), qs["hw"], qs["sw"])
+                        if data is None:
+                            raise ApiError(404, "ECU này không có trong COM_BOM của FRS")
+                        return self._json(data)
                     if path == "/api/frs-list":
                         return self._json({"frs": compare.frs_list(conn)})
                     if path == "/api/compare":

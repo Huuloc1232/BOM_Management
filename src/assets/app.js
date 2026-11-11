@@ -240,12 +240,66 @@ async function renderFrs(id, params) {
   };
 
   if (tab === "combom") {
-    const rows = d.com_bom.map((r, i) => `<tr class="${i === 0 || d.com_bom[i - 1].ecu_raw !== r.ecu_raw ? "block-start" : ""}">
-      <td><b>${esc(r.ecu_raw)}</b></td><td>${esc(r.market)}</td><td>${pnLink(r.pu_pn)}</td><td>${pnLink(r.hw_pn)}</td><td>${pnLink(r.sw_pn)}</td>
-      <td class="mono">${esc(r.bl_version)}</td><td>${esc(r.remark)}</td></tr>`).join("");
-    body.innerHTML = `<p class="muted">Một dòng = HW và SW tương thích với nhau. ECU không có trong bảng là "không theo dõi".</p>
-      <div class="table-wrap"><table><thead><tr><th>ECU</th><th>Market</th><th>PU PN</th><th>HW PN</th><th>SW PN</th><th>BL version</th><th>Remark</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" class="empty">File không có sheet COM_BOM.</td></tr>'}</tbody></table></div>`;
+    const cv = await api(`/api/frs/${id}/compat`);
+    const short = (list) => list.map((h) => `<span class="mono">${esc(h)}</span>`).join(", ");
+    const answers = cv.groups.flatMap((g) => g.answers.map((a) => `<div class="answer ${a.incompatible.length ? "warn" : "ok"}">
+        <div><b>${esc(g.name)}</b> · SW đang dùng <span class="mono">${esc(a.sw)}</span>${a.listed ? "" : ' <span class="chip warn">SW không có trong COM_BOM</span>'}</div>
+        <div>${a.compatible.length ? `Tương thích ${a.compatible.length}/${g.hws.length} HW: ${short(a.compatible)}` : "Không tương thích HW nào trong bảng"}</div>
+        ${a.incompatible.length ? `<div>Không tương thích: ${short(a.incompatible)}</div>` : ""}</div>`)).join("");
+    const warnings = [
+      ...cv.groups.flatMap((g) => g.bom.filter((x) => x.warning).map((x) => ({ ...x, ecu: g.name }))),
+      ...cv.orphans,
+    ].map((x) => `<li><b>${esc(x.ecu)}</b> [${esc(x.variants.join(", "))}]: HW <span class="mono">${esc(x.hw)}</span> + SW <span class="mono">${esc(x.sw)}</span>. ${esc(x.reason)}.</li>`).join("");
+    const matrix = (g) => {
+      const extra = g.bom.filter((x) => x.warning);  // cặp của BOM không có trong bảng
+      const head = g.sws.map((s) => `<th class="mono ${s.in_bom ? "cur" : ""}">${esc(s.sw_pn)}${s.in_bom ? '<div class="tag">BOM</div>' : ""}</th>`).join("");
+      const rows = g.hws.map((h) => `<tr><th scope="row" class="mono ${h.in_bom ? "cur" : ""}">${pnLink(h.hw_pn)}${h.in_bom ? ' <span class="tag">BOM</span>' : ""}
+          <div class="muted" style="font-weight:400">PU ${esc(h.pu_pns.join(", ") || "?")}</div></th>
+        ${g.sws.map((s) => {
+          const key = `${h.hw_pn}|${s.sw_pn}`;
+          const ok = key in g.cells;
+          const cur = g.bom.some((x) => x.hw === h.hw_pn && x.sw === s.sw_pn);
+          return `<td class="cell ${ok ? "yes" : "no"} ${cur ? "current" : ""}" title="${ok ? "Tương thích" : "Không tương thích"}${cur ? " (cặp đang dùng trong BOM)" : ""}">${ok ? `✓${g.cells[key] ? ` <span class="mono">BL ${esc(g.cells[key])}</span>` : ""}` : "–"}</td>`;
+        }).join("")}</tr>`).join("");
+      return `<section><h2>${esc(g.name)} ${g.warning ? '<span class="chip warn">có cảnh báo</span>' : ""}</h2>
+        <div class="table-wrap"><table class="matrix"><thead><tr><th>HW \\ SW</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+        ${extra.map((x) => `<p class="answer warn" style="margin:8px 0 0">BOM đang dùng HW ${esc(x.hw)} + SW ${esc(x.sw)}: ${esc(x.reason)}</p>`).join("")}</section>`;
+    };
+    body.innerHTML = cv.groups.length ? `
+      ${warnings ? `<div class="notice" style="margin:0 0 14px"><b>${cv.warning_count} cảnh báo:</b><ul style="margin:6px 0 0 18px;padding:0">${warnings}</ul></div>` : ""}
+      <section style="margin-top:0"><h2>SW đang dùng có tương thích HW cũ không?</h2><div class="answers">${answers}</div></section>
+      <section><h2>Kiểm tra một cặp HW + SW</h2>
+        <form class="toolbar" id="check-form">
+          <select name="group" aria-label="ECU">${cv.groups.map((g) => `<option>${esc(g.name)}</option>`).join("")}</select>
+          <input type="search" name="hw" list="hw-list" placeholder="HW PN" required aria-label="HW PN">
+          <input type="search" name="sw" list="sw-list" placeholder="SW PN" required aria-label="SW PN">
+          <datalist id="hw-list"></datalist><datalist id="sw-list"></datalist>
+          <button type="submit">Kiểm tra</button>
+        </form><div id="check-result"></div></section>
+      ${cv.groups.map(matrix).join("")}
+      <p class="muted" style="margin-top:14px">✓ = tương thích (kèm BL version), – = không tương thích. Ô viền đậm là cặp đang dùng trong BOM.
+        ECU không theo dõi trong COM_BOM: ${esc(cv.untracked_ecus.join(", ") || "không có")}.</p>` : '<div class="empty">File không có sheet COM_BOM.</div>';
+    const form = document.getElementById("check-form");
+    if (form) {
+      const fill = () => {
+        const g = cv.groups.find((x) => x.name === form.group.value);
+        document.getElementById("hw-list").innerHTML = g.hws.map((h) => `<option value="${esc(h.hw_pn)}">`).join("");
+        document.getElementById("sw-list").innerHTML = g.sws.map((s) => `<option value="${esc(s.sw_pn)}">`).join("");
+      };
+      fill();
+      form.group.onchange = fill;
+      form.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const out = document.getElementById("check-result");
+        try {
+          const r = await api(`/api/frs/${id}/compat-check?group=${enc(form.group.value)}&hw=${enc(form.hw.value)}&sw=${enc(form.sw.value)}`);
+          const list = (items, key) => items.map((x) => `<span class="mono">${esc(x[key])}</span>`).join(", ") || "không có";
+          out.innerHTML = `<div class="answer ${r.compatible ? "ok" : "warn"}">
+            <div><b>${r.compatible ? "Tương thích" : "Không tương thích"}</b>: ${esc(r.group)} · HW <span class="mono">${esc(r.hw_pn)}</span> + SW <span class="mono">${esc(r.sw_pn)}</span>${r.compatible && r.matches[0].bl_version ? ` · BL ${esc(r.matches[0].bl_version)}` : ""}</div>
+            ${r.compatible ? "" : `<div>${esc(r.reason)}.</div><div>HW này đi với SW: ${list(r.sw_for_hw, "sw_pn")}</div><div>SW này đi với HW: ${list(r.hw_for_sw, "hw_pn")}</div>`}</div>`;
+        } catch (e) { out.innerHTML = `<div class="answer warn">${esc(e.message)}</div>`; }
+      };
+    }
   } else if (tab === "change") {
     const rows = d.changes.map((c, i) => `<tr class="${i === 0 || d.changes[i - 1].tpv !== c.tpv ? "block-start" : ""}">
       <td><b>${c.tpv == null ? "?" : "TPV" + c.tpv}</b></td><td>${esc(c.ecu_raw)}${c.shared ? '<div class="muted">chung nội dung với ECU phía trên</div>' : ""}</td>

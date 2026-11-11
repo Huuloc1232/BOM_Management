@@ -139,6 +139,20 @@ class AppTest(unittest.TestCase):
         _, fl = self.get("/api/frs-list")
         self.assertEqual({f["code"]: f["parent_code"] for f in fl["frs"]}["3B.1.11.0"], "3B.1.10.0")
 
+    def test_compat_api(self):
+        fid = self.frs_id("3B.1.11.0")
+        status, d = self.get(f"/api/frs/{fid}/compat")
+        self.assertEqual(status, 200)
+        self.assertEqual([g["name"] for g in d["groups"]], ["MHU VN", "SS", "ACM", "2IN1 (VN)", "2IN1 (PHL)", "EAC"])
+        self.assertEqual(d["warning_count"], 2)
+        _, r = self.get(f"/api/frs/{fid}/compat-check?group=ACM&hw=EEP69080001AA-05&sw=SOW69081002AD-01")
+        self.assertEqual((r["compatible"], r["status"]), (False, "sw_mismatch"))
+        _, r = self.get(f"/api/frs/{fid}/compat-check?group={quote('2IN1 (VN)')}&hw=EEP69072001AC-02&sw=SOW69272005AA-06")
+        self.assertTrue(r["compatible"])
+        self.assertEqual(self.get(f"/api/frs/{fid}/compat-check?group=ACM&hw=x")[0], 400)
+        self.assertEqual(self.get(f"/api/frs/{fid}/compat-check?group=BMS&hw=x&sw=y")[0], 404)
+        self.assertEqual(self.get("/api/frs/999/compat")[0], 404)
+
     def test_add_project_and_line(self):
         status, _ = self.post("/api/projects", {"name": "ECVan"})
         self.assertEqual(status, 200)
